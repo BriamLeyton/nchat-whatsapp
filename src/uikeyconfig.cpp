@@ -233,6 +233,8 @@ void UiKeyConfig::Init(bool p_MapKeys)
     { "toggle_help", "KEY_CTRLG" },
     { "toggle_list", "KEY_CTRLL" },
     { "toggle_top", "KEY_NONE" },
+    { "toggle_others", "\\33\\157" }, // alt/opt-o
+    { "toggle_archived", "\\33\\150" }, // alt/opt-h
     { "next_chat", "KEY_TAB" },
     { "prev_chat", "KEY_BTAB" },
     { "unread_chat", "KEY_CTRLF" },

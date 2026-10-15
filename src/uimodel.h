@@ -20,6 +20,15 @@
 
 class UiView;
 
+// chat list sections, in display order
+enum ChatSection
+{
+  ChatSectionPinned = 0,
+  ChatSectionOthers = 1,
+  ChatSectionArchived = 2,
+  ChatSectionCount = 3,
+};
+
 class UiModel
 {
 private:
@@ -37,6 +46,14 @@ private:
     void OnKeyDecreaseListWidth();
     void OnKeyIncreaseListWidth();
     void OnKeyToggleHelp();
+    void OnKeyToggleOthers();
+    void OnKeyToggleArchived();
+    void ToggleSectionCollapsed(int p_Section);
+    int GetChatSection(const std::string& p_ProfileId, const std::string& p_ChatId);
+    bool GetSectionCollapsed(int p_Section);
+    void SetSectionCollapsed(int p_Section, bool p_Collapsed);
+    bool IsChatHidden(const std::string& p_ProfileId, const std::string& p_ChatId);
+    bool SelectNearestVisibleChat();
     void OnKeyToggleList();
     void OnKeyToggleTop();
     void OnKeyToggleEmoji();
@@ -252,6 +269,8 @@ private:
 
     std::pair<std::string, std::string> m_CurrentChat;
     int m_CurrentChatIndex = -1;
+    bool m_SectionCollapsed[ChatSectionCount] = { false, false, false };
+    int m_SectionChatCount[ChatSectionCount] = { 0, 0, 0 };
     static const std::pair<std::string, std::string> s_ChatNone;
 
     std::string m_EditMessageId;
@@ -344,6 +363,9 @@ public:
 
   // Locked methods require caller to hold model mutex (intended for Ui*View classes)
   bool GetChatIsUnreadLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+  int GetChatSectionLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+  bool GetSectionCollapsedLocked(int p_Section);
+  bool IsChatHiddenLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
   std::string GetChatStatusLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
   std::vector<std::pair<std::string, std::string>>& GetChatVecLocked();
   std::string GetContactListNameLocked(const std::string& p_ProfileId, const std::string& p_ChatId, bool p_AllowId,

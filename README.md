@@ -69,8 +69,10 @@ Interactive Commands:
     Alt-a       archive current chat
     Alt-d       delete/leave current chat
     Alt-e       external editor compose
+    Alt-h       collapse/expand archived chats section
     Alt-i       auto-compose reply
     Alt-n       search contacts
+    Alt-o       collapse/expand others chats section
     Alt-p       pin/unpin current chat
     Alt-t       external telephone call
     Alt-/       find in chat
@@ -737,6 +739,15 @@ macOS: `open '%1' &`
 Note: Omit the trailing `&` for commands taking over the terminal, for
 example `w3m -o confirm_qq=false '%1'` and `see '%1'`.
 
+### list_archived_collapsed
+
+Specifies whether the archived chats section of the chat list is collapsed.
+Controlled by Alt-h in run-time.
+
+### list_archived_header
+
+Title of the archived chats section in the chat list.
+
 ### list_enabled
 
 Specifies whether to display chat list. Controlled by Ctrl-l in run-time.
@@ -744,6 +755,20 @@ Specifies whether to display chat list. Controlled by Ctrl-l in run-time.
 ### list_width
 
 Specifies width of chat list.
+
+### list_others_collapsed
+
+Specifies whether the others chats section (neither pinned nor archived) of
+the chat list is collapsed. Controlled by Alt-o in run-time. Sections are only
+shown when there are pinned or archived chats.
+
+### list_others_header
+
+Title of the others chats section in the chat list.
+
+### list_pinned_header
+
+Title of the pinned chats section in the chat list.
 
 ### listdialog_show_filter
 

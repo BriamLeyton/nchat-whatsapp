@@ -59,6 +59,8 @@ UiModel::Impl::~Impl()
 
 void UiModel::Impl::Init()
 {
+  m_SectionCollapsed[ChatSectionOthers] = UiConfig::GetBool("list_others_collapsed");
+  m_SectionCollapsed[ChatSectionArchived] = UiConfig::GetBool("list_archived_collapsed");
   m_View->Init();
 }
 
@@ -142,6 +144,92 @@ void UiModel::Impl::OnKeyToggleHelp()
   AnyUserKeyInput();
   m_View->SetHelpEnabled(!m_View->GetHelpEnabled());
   ReinitView();
+}
+
+void UiModel::Impl::OnKeyToggleOthers()
+{
+  AnyUserKeyInput();
+  ToggleSectionCollapsed(ChatSectionOthers);
+}
+
+void UiModel::Impl::OnKeyToggleArchived()
+{
+  AnyUserKeyInput();
+  ToggleSectionCollapsed(ChatSectionArchived);
+}
+
+void UiModel::Impl::ToggleSectionCollapsed(int p_Section)
+{
+  if (GetEditMessageActive()) return;
+
+  SetSectionCollapsed(p_Section, !GetSectionCollapsed(p_Section));
+  if ((m_CurrentChat != s_ChatNone) && IsChatHidden(m_CurrentChat.first, m_CurrentChat.second))
+  {
+    if (SelectNearestVisibleChat())
+    {
+      OnCurrentChatChanged();
+      SetSelectMessageActive(false);
+    }
+  }
+
+  UpdateList();
+}
+
+int UiModel::Impl::GetChatSection(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  const ChatInfo& chatInfo = m_ChatInfos[p_ProfileId][p_ChatId];
+  if (chatInfo.isPinned) return ChatSectionPinned;
+
+  if (chatInfo.isArchived) return ChatSectionArchived;
+
+  return ChatSectionOthers;
+}
+
+bool UiModel::Impl::GetSectionCollapsed(int p_Section)
+{
+  return m_SectionCollapsed[p_Section];
+}
+
+void UiModel::Impl::SetSectionCollapsed(int p_Section, bool p_Collapsed)
+{
+  if (p_Section == ChatSectionPinned) return;
+
+  m_SectionCollapsed[p_Section] = p_Collapsed;
+  UiConfig::SetBool((p_Section == ChatSectionOthers) ? "list_others_collapsed" : "list_archived_collapsed",
+                    p_Collapsed);
+}
+
+bool UiModel::Impl::IsChatHidden(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  const int section = GetChatSection(p_ProfileId, p_ChatId);
+  if (!m_SectionCollapsed[section]) return false;
+
+  // a section only collapses when there are chats in other sections (i.e. section titles are shown)
+  const int otherSectionsCount = (int)m_ChatVec.size() - m_SectionChatCount[section];
+  return (otherSectionsCount > 0);
+}
+
+bool UiModel::Impl::SelectNearestVisibleChat()
+{
+  const int count = m_ChatVec.size();
+  const int start = std::max(0, m_CurrentChatIndex);
+  for (int dist = 1; dist < count; ++dist)
+  {
+    for (int idx : { start + dist, start - dist })
+    {
+      if ((idx < 0) || (idx >= count)) continue;
+
+      const std::pair<std::string, std::string>& chat = m_ChatVec.at(idx);
+      if (!IsChatHidden(chat.first, chat.second))
+      {
+        m_CurrentChatIndex = idx;
+        m_CurrentChat = chat;
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 void UiModel::Impl::OnKeyToggleList()
@@ -558,12 +646,22 @@ void UiModel::Impl::OnKeyNextChat()
 
   if (m_ChatVec.empty()) return;
 
-  ++m_CurrentChatIndex;
-  if (m_CurrentChatIndex >= (int)m_ChatVec.size())
+  // skip chats in collapsed sections
+  int index = m_CurrentChatIndex;
+  for (size_t i = 0; i < m_ChatVec.size(); ++i)
   {
-    m_CurrentChatIndex = 0;
+    ++index;
+    if (index >= (int)m_ChatVec.size())
+    {
+      index = 0;
+    }
+
+    if (!IsChatHidden(m_ChatVec.at(index).first, m_ChatVec.at(index).second)) break;
   }
 
+  if (IsChatHidden(m_ChatVec.at(index).first, m_ChatVec.at(index).second)) return;
+
+  m_CurrentChatIndex = index;
   m_CurrentChat = m_ChatVec.at(m_CurrentChatIndex);
   OnCurrentChatChanged();
   SetSelectMessageActive(false);
@@ -577,12 +675,22 @@ void UiModel::Impl::OnKeyPrevChat()
 
   if (m_ChatVec.empty()) return;
 
-  --m_CurrentChatIndex;
-  if (m_CurrentChatIndex < 0)
+  // skip chats in collapsed sections
+  int index = m_CurrentChatIndex;
+  for (size_t i = 0; i < m_ChatVec.size(); ++i)
   {
-    m_CurrentChatIndex = m_ChatVec.size() - 1;
+    --index;
+    if (index < 0)
+    {
+      index = m_ChatVec.size() - 1;
+    }
+
+    if (!IsChatHidden(m_ChatVec.at(index).first, m_ChatVec.at(index).second)) break;
   }
 
+  if (IsChatHidden(m_ChatVec.at(index).first, m_ChatVec.at(index).second)) return;
+
+  m_CurrentChatIndex = index;
   m_CurrentChat = m_ChatVec.at(m_CurrentChatIndex);
   OnCurrentChatChanged();
   SetSelectMessageActive(false);
@@ -602,6 +710,9 @@ void UiModel::Impl::OnKeyUnreadChat()
   for (size_t i = 0; i < m_ChatVec.size(); ++i)
   {
     const std::pair<std::string, std::string>& chat = m_ChatVec.at(i);
+    if (m_SectionCollapsed[ChatSectionArchived] &&
+        (GetChatSection(chat.first, chat.second) == ChatSectionArchived)) continue;
+
     const bool isUnread = GetChatIsUnread(chat.first, chat.second);
     if (isUnread)
     {
@@ -1721,8 +1832,6 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
 
             m_ChatInfos[profileId][chatInfo.id] = chatInfo;
 
-            if (chatInfo.isArchived) continue;
-
             if (m_ChatSet[profileId].insert(chatInfo.id).second)
             {
               m_ChatVec.push_back(std::make_pair(profileId, chatInfo.id));
@@ -1748,7 +1857,6 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
           bool hasNewMessage = false;
           const std::string& chatId = newMessagesNotify->chatId;
           if (IsChatForceHidden(chatId)) return;
-          if (m_ChatInfos[profileId].count(chatId) && m_ChatInfos[profileId][chatId].isArchived) return;
 
           std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
           std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
@@ -2275,35 +2383,24 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
         if (!m_ChatInfos[profileId].count(chatId)) break;
 
         m_ChatInfos[profileId][chatId].isArchived = isArchived;
+        if (m_ChatSet[profileId].insert(chatId).second)
+        {
+          m_ChatVec.push_back(std::make_pair(profileId, chatId));
+        }
+
         if (isArchived)
         {
-          m_ChatSet[profileId].erase(chatId);
-          m_ChatVec.erase(
-            std::remove(m_ChatVec.begin(), m_ChatVec.end(), std::make_pair(profileId, chatId)),
-            m_ChatVec.end());
-
-          if ((m_CurrentChat.first == profileId) && (m_CurrentChat.second == chatId))
+          // chat moves to archived section, select a visible chat if it is now hidden
+          SortChats();
+          if ((m_CurrentChat.first == profileId) && (m_CurrentChat.second == chatId) &&
+              IsChatHidden(profileId, chatId) && SelectNearestVisibleChat())
           {
-            if (!m_ChatVec.empty())
-            {
-              m_CurrentChat = m_ChatVec.at(NumUtil::Bound(0, m_CurrentChatIndex, ((int)m_ChatVec.size() - 1)));
-            }
-            else
-            {
-              m_CurrentChat = s_ChatNone;
-            }
-            SortChats();
             OnCurrentChatChanged();
             SetSelectMessageActive(false);
           }
         }
         else
         {
-          if (m_ChatSet[profileId].insert(chatId).second)
-          {
-            m_ChatVec.push_back(std::make_pair(profileId, chatId));
-          }
-
           // request fresh chat details to get correct lastMessageTime
           std::shared_ptr<GetChatsRequest> getChatsRequest = std::make_shared<GetChatsRequest>();
           getChatsRequest->chatIds.insert(chatId);
@@ -2488,11 +2585,13 @@ void UiModel::Impl::SortChats()
     const ChatInfo& lhsChatInfo = m_ChatInfos[lhs.first][lhs.second];
     const ChatInfo& rhsChatInfo = m_ChatInfos[rhs.first][rhs.second];
 
-    // pinned are listed first
-    if (lhsChatInfo.isPinned > rhsChatInfo.isPinned) return true;
-    if (lhsChatInfo.isPinned < rhsChatInfo.isPinned) return false;
+    // pinned are listed first, archived last
+    const int lhsSection = GetChatSection(lhs.first, lhs.second);
+    const int rhsSection = GetChatSection(rhs.first, rhs.second);
+    if (lhsSection < rhsSection) return true;
+    if (lhsSection > rhsSection) return false;
 
-    if (!mutedPositionByTimestamp)
+    if (!mutedPositionByTimestamp && (lhsSection != ChatSectionArchived))
     {
       // non-muted are listed first
       if (lhsChatInfo.isMuted < rhsChatInfo.isMuted) return true;
@@ -2509,6 +2608,12 @@ void UiModel::Impl::SortChats()
 
     return false;
   });
+
+  std::fill(std::begin(m_SectionChatCount), std::end(m_SectionChatCount), 0);
+  for (const auto& chat : m_ChatVec)
+  {
+    ++m_SectionChatCount[GetChatSection(chat.first, chat.second)];
+  }
 
   if (!m_ChatVec.empty())
   {
@@ -2854,6 +2959,12 @@ std::string UiModel::Impl::GetChatStatus(const std::string& p_ProfileId, const s
 void UiModel::Impl::OnCurrentChatChanged()
 {
   LOG_TRACE("current chat %s %s", m_CurrentChat.first.c_str(), m_CurrentChat.second.c_str());
+  if ((m_CurrentChat != s_ChatNone) && IsChatHidden(m_CurrentChat.first, m_CurrentChat.second))
+  {
+    // chat opened by other means than next/prev (e.g. goto, unread, contact), expand its section
+    SetSectionCollapsed(GetChatSection(m_CurrentChat.first, m_CurrentChat.second), false);
+  }
+
   SetHistoryInteraction(false);
   UpdateList();
   UpdateStatus();
@@ -4599,6 +4710,8 @@ void UiModel::KeyHandler(wint_t p_Key)
   static wint_t keyDeleteChat = UiKeyConfig::GetKey("delete_chat");
   static wint_t keyArchiveChat = UiKeyConfig::GetKey("archive_chat");
   static wint_t keyPin = UiKeyConfig::GetKey("pin");
+  static wint_t keyToggleOthers = UiKeyConfig::GetKey("toggle_others");
+  static wint_t keyToggleArchived = UiKeyConfig::GetKey("toggle_archived");
   static wint_t keyEditMsg = UiKeyConfig::GetKey("edit_msg");
   static wint_t keyCancel = UiKeyConfig::GetKey("cancel");
 
@@ -4660,6 +4773,16 @@ void UiModel::KeyHandler(wint_t p_Key)
   {
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     GetImpl().OnKeyToggleHelp();
+  }
+  else if (p_Key == keyToggleOthers)
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    GetImpl().OnKeyToggleOthers();
+  }
+  else if (p_Key == keyToggleArchived)
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    GetImpl().OnKeyToggleArchived();
   }
   else if (p_Key == keyToggleList)
   {
@@ -5038,6 +5161,24 @@ bool UiModel::GetChatIsUnreadLocked(const std::string& p_ProfileId, const std::s
 {
   nc_assert(m_ModelMutex.owns_lock());
   return GetImpl().GetChatIsUnread(p_ProfileId, p_ChatId);
+}
+
+int UiModel::GetChatSectionLocked(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().GetChatSection(p_ProfileId, p_ChatId);
+}
+
+bool UiModel::GetSectionCollapsedLocked(int p_Section)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().GetSectionCollapsed(p_Section);
+}
+
+bool UiModel::IsChatHiddenLocked(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().IsChatHidden(p_ProfileId, p_ChatId);
 }
 
 std::string UiModel::GetChatStatusLocked(const std::string& p_ProfileId, const std::string& p_ChatId)

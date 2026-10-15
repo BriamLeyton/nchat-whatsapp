@@ -53,40 +53,123 @@ void UiListView::Draw()
   static int attributeSelected = UiColorConfig::GetAttribute("list_attr_selected");
   static int colorPairUnread = UiColorConfig::GetColorPair("list_color_unread");
 
+  static int colorPairHeader = UiColorConfig::GetColorPair("list_color_header");
+  static int attributeHeader = UiColorConfig::GetAttribute("list_attr_header");
+  static const std::string unreadIndicator = " " + UiConfig::GetStr("unread_indicator");
+  static const std::wstring wunread = StrUtil::ToWString(unreadIndicator);
+  static const std::string sectionHeaders[ChatSectionCount] =
+  {
+    UiConfig::GetStr("list_pinned_header"),
+    UiConfig::GetStr("list_others_header"),
+    UiConfig::GetStr("list_archived_header"),
+  };
+
   int index = std::max(0, m_Model->GetCurrentChatIndexLocked());
   const std::vector<std::pair<std::string, std::string>>& p_ChatVec = m_Model->GetChatVecLocked();
+
+  // build rows: section headers (chatIndex -1) and visible chats, chat vec is sorted by section
+  struct Row
+  {
+    int chatIndex = -1;
+    int section = 0;
+  };
 
   const bool emojiEnabled = m_Model->GetEmojiEnabledLocked();
   std::vector<std::string> names;
   std::vector<bool> unreads;
+  std::vector<int> sections;
+  int sectionCounts[ChatSectionCount] = { 0, 0, 0 };
+  bool sectionUnreads[ChatSectionCount] = { false, false, false };
   for (auto& chatPair : p_ChatVec)
   {
     const std::string& name = m_Model->GetContactListNameLocked(chatPair.first, chatPair.second, true /*p_AllowId*/,
                                                                 true /*p_AllowAlias*/);
     bool isUnread = m_Model->GetChatIsUnreadLocked(chatPair.first, chatPair.second);
+    int section = m_Model->GetChatSectionLocked(chatPair.first, chatPair.second);
     names.push_back(name);
     unreads.push_back(isUnread);
+    sections.push_back(section);
+    ++sectionCounts[section];
+    sectionUnreads[section] = sectionUnreads[section] || isUnread;
+  }
+
+  // headers are only shown when chats exist in other sections than "others"
+  const bool showHeaders = (sectionCounts[ChatSectionOthers] < (int)p_ChatVec.size());
+  std::vector<Row> rows;
+  int selectedRow = 0;
+  int prevSection = -1;
+  for (int i = 0; i < (int)p_ChatVec.size(); ++i)
+  {
+    const int section = sections[i];
+    if (showHeaders && (section != prevSection))
+    {
+      rows.push_back(Row{ -1, section });
+      prevSection = section;
+    }
+
+    if (m_Model->IsChatHiddenLocked(p_ChatVec[i].first, p_ChatVec[i].second)) continue;
+
+    if (i == index)
+    {
+      selectedRow = rows.size();
+    }
+
+    rows.push_back(Row{ i, section });
   }
 
   werase(m_PaddedWin);
   wbkgd(m_PaddedWin, attribute | colorPair | ' ');
   wattron(m_PaddedWin, attribute | colorPair);
 
-  if (!names.empty())
+  if (!rows.empty())
   {
     int height = m_PaddedH;
-    int count = names.size();
-    int offset = std::min(std::max(0, index - ((height - 1) / 2)), std::max(0, count - height));
+    int count = rows.size();
+    int offset = std::min(std::max(0, selectedRow - ((height - 1) / 2)), std::max(0, count - height));
     int last = std::min((height + offset), count);
-    for (int i = offset; i < last; ++i)
+    for (int r = offset; r < last; ++r)
     {
+      int y = r - offset;
+      const Row& row = rows[r];
+      if (row.chatIndex == -1)
+      {
+        const int section = row.section;
+        const bool collapsed = m_Model->GetSectionCollapsedLocked(section) &&
+          (sectionCounts[section] < (int)p_ChatVec.size());
+        std::string header = sectionHeaders[section];
+        if (collapsed)
+        {
+          header += " (" + std::to_string(sectionCounts[section]) + ")";
+        }
+
+        const bool headerUnread = collapsed && sectionUnreads[section];
+        const int unreadW = headerUnread ? StrUtil::WStringWidth(wunread) : 0;
+        std::wstring wheader = StrUtil::ToWString(header).substr(0, m_PaddedW);
+        wheader = StrUtil::TrimPadWString(wheader, std::max(0, m_PaddedW - unreadW));
+
+        wattroff(m_PaddedWin, attribute | colorPair);
+        wattron(m_PaddedWin, attributeHeader | colorPairHeader);
+        mvwaddnwstr(m_PaddedWin, y, 0, wheader.c_str(), wheader.size());
+        wattroff(m_PaddedWin, attributeHeader | colorPairHeader);
+
+        if (headerUnread)
+        {
+          wattron(m_PaddedWin, colorPairUnread);
+          mvwaddnwstr(m_PaddedWin, y, (m_PaddedW - unreadW), wunread.c_str(), wunread.size());
+          wattroff(m_PaddedWin, colorPairUnread);
+        }
+
+        wattron(m_PaddedWin, attribute | colorPair);
+        continue;
+      }
+
+      const int i = row.chatIndex;
       if (i == index)
       {
         wattroff(m_PaddedWin, attribute);
         wattron(m_PaddedWin, attributeSelected);
       }
 
-      int y = i - offset;
       std::string name = names[i];
       if (!emojiEnabled)
       {
@@ -105,8 +188,6 @@ void UiListView::Draw()
 
       if (unreads[i])
       {
-        static const std::string unreadIndicator = " " + UiConfig::GetStr("unread_indicator");
-        static const std::wstring wunread = StrUtil::ToWString(unreadIndicator);
         mvwaddnwstr(m_PaddedWin, y, (m_PaddedW - StrUtil::WStringWidth(wunread)), wunread.c_str(), wunread.size());
 
         wattron(m_PaddedWin, colorPair);
