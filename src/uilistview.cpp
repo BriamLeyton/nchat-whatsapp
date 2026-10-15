@@ -136,7 +136,8 @@ void UiListView::Draw()
         const int section = row.section;
         const bool collapsed = m_Model->GetSectionCollapsedLocked(section) &&
           (sectionCounts[section] < (int)p_ChatVec.size());
-        std::string header = sectionHeaders[section];
+        // "▾ TITLE ─────" when expanded, "▸ TITLE (N) ──── *" when collapsed
+        std::string header = (collapsed ? "\xe2\x96\xb8 " : "\xe2\x96\xbe ") + sectionHeaders[section];
         if (collapsed)
         {
           header += " (" + std::to_string(sectionCounts[section]) + ")";
@@ -144,8 +145,15 @@ void UiListView::Draw()
 
         const bool headerUnread = collapsed && sectionUnreads[section];
         const int unreadW = headerUnread ? StrUtil::WStringWidth(wunread) : 0;
-        std::wstring wheader = StrUtil::ToWString(header).substr(0, m_PaddedW);
-        wheader = StrUtil::TrimPadWString(wheader, std::max(0, m_PaddedW - unreadW));
+        const int headerW = std::max(0, m_PaddedW - unreadW);
+        std::wstring wheader = StrUtil::ToWString(header + " ");
+        const int ruleW = headerW - StrUtil::WStringWidth(wheader);
+        if (ruleW > 0)
+        {
+          wheader += std::wstring(ruleW, L'\u2500');
+        }
+
+        wheader = StrUtil::TrimPadWString(wheader, headerW);
 
         wattroff(m_PaddedWin, attribute | colorPair);
         wattron(m_PaddedWin, attributeHeader | colorPairHeader);

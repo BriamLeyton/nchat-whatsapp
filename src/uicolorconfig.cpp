@@ -55,7 +55,7 @@ void UiColorConfig::Init()
     { "list_attr_selected", "reverse" },
     { "list_color_bg", "" },
     { "list_color_fg", "" },
-    { "list_color_header_fg", "" },
+    { "list_color_header_fg", "0x00a884" },
     { "list_color_header_bg", "" },
     { "list_color_unread_fg", "" },
     { "list_color_unread_bg", "" },
