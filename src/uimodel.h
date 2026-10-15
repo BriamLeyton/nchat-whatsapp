@@ -45,7 +45,6 @@ private:
     void TerminalResize();
     void OnKeyDecreaseListWidth();
     void OnKeyIncreaseListWidth();
-    void OnKeyToggleHelp();
     void OnKeyToggleOthers();
     void OnKeyToggleArchived();
     void ToggleSectionCollapsed(int p_Section);
@@ -428,6 +427,7 @@ private:
   bool MessageDialog(const std::string& p_Title, const std::string& p_Text, float p_WReq, float p_HReq);
   void OnKeyDeleteMsg();
   void OnKeyDeleteChat();
+  void OnKeyToggleHelp();
   void OnKeyArchiveChat();
   void OnKeyPin();
   void OnKeySaveAttachment();

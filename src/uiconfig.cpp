@@ -44,8 +44,8 @@ void UiConfig::Init()
     { "file_picker_command", "" },
     { "file_picker_persist_dir", "1" },
     { "help_enabled", "1" },
-    { "help_prefix_ctrl", "^" },
-    { "help_prefix_meta", "M-" },
+    { "help_prefix_ctrl", "Ctrl+" },
+    { "help_prefix_meta", "Alt+" },
     { "home_fetch_all", "0" },
     { "inline_image_max_height", "10" },
     { "inline_images_enabled", "1" },
@@ -96,6 +96,17 @@ void UiConfig::Init()
 
   const std::string configPath(FileUtil::GetApplicationDir() + std::string("/ui.conf"));
   m_Config = Config(configPath, defaultConfig);
+
+  // migrate previous default key prefixes to the more readable Ctrl+s / Alt+p
+  if (m_Config.Get("help_prefix_ctrl") == "^")
+  {
+    m_Config.Set("help_prefix_ctrl", "Ctrl+");
+  }
+
+  if (m_Config.Get("help_prefix_meta") == "M-")
+  {
+    m_Config.Set("help_prefix_meta", "Alt+");
+  }
 }
 
 void UiConfig::Cleanup()

@@ -55,7 +55,7 @@ Interactive Commands:
     Tab         next chat
     Sh-Tab      previous chat
     Ctrl-f      jump to unread chat
-    Ctrl-g      toggle show help bar
+    Ctrl-g      show help dialog with all commands (Esc closes)
     Ctrl-l      toggle show contact list
     Ctrl-n      goto chat
     Ctrl-p      toggle show top bar
@@ -697,18 +697,19 @@ last selected file.
 
 ### help_enabled
 
-Specifies whether to display help bar. Controlled by Ctrl-g in run-time.
+Specifies whether to display help bar. Ctrl-g opens a help dialog listing
+all commands.
 
 ### help_prefix_ctrl
 
 Specifies the prefix used in the help bar for control key combinations,
-i.e. `^` results in `^X` being displayed for Ctrl-X. Users on macOS may
+i.e. `Ctrl+` (default) results in `Ctrl+x` being displayed for Ctrl-X. Users on macOS may
 prefer the Apple modifier symbol `⌃` here.
 
 ### help_prefix_meta
 
 Specifies the prefix used in the help bar for meta / alt key combinations,
-i.e. `M-` results in `M-/` being displayed for Alt-/. Users on macOS may
+i.e. `Alt+` (default) results in `Alt+/` being displayed for Alt-/. Users on macOS may
 prefer the Apple modifier symbol `⌥` here. Other alternatives include
 `A-` and `Alt-`.
 

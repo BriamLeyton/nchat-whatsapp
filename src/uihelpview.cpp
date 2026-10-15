@@ -107,7 +107,7 @@ void UiHelpView::Draw()
     AppendHelpItem("toggle_emoji", "TgEmoji", helpItems);
     AppendHelpItem("toggle_list", "TgList", helpItems);
     AppendHelpItem("toggle_top", "TgTop", helpItems);
-    AppendHelpItem("toggle_help", "TgHelp", helpItems);
+    AppendHelpItem("toggle_help", "Help", helpItems);
 
     return helpItems;
   }();
@@ -272,12 +272,17 @@ std::string UiHelpView::GetKeyDisplay(const std::string& p_Func)
   if ((keyName.size() == 9) && (keyName >= "KEY_CTRLA") && (keyName <= "KEY_CTRLZ"))
   {
     static const std::string helpPrefixCtrl = UiConfig::GetStr("help_prefix_ctrl");
-    return helpPrefixCtrl + keyName.substr(8, 1);
+    return helpPrefixCtrl + StrUtil::ToLower(keyName.substr(8, 1));
   }
   else if (std::count(keyName.begin(), keyName.end(), '\\') == 2)
   {
     const std::string keyStr = StrUtil::StrFromOct(keyName);
-    if ((keyStr.size() == 2) && (keyStr.at(0) == '\33') && StrUtil::IsValidTextKey(keyStr.at(1)))
+    if ((keyStr.size() == 2) && (keyStr.at(0) == '\33') && (keyStr.at(1) == '\177'))
+    {
+      static const std::string helpPrefixMeta = UiConfig::GetStr("help_prefix_meta");
+      return helpPrefixMeta + "\xe2\x8c\xab";
+    }
+    else if ((keyStr.size() == 2) && (keyStr.at(0) == '\33') && StrUtil::IsValidTextKey(keyStr.at(1)))
     {
       static const std::string helpPrefixMeta = UiConfig::GetStr("help_prefix_meta");
       return helpPrefixMeta + keyStr.substr(1);
@@ -314,6 +319,34 @@ std::string UiHelpView::GetKeyDisplay(const std::string& p_Func)
   else if (keyName == "KEY_BACKSPACE")
   {
     return "\xe2\x8c\xab";
+  }
+  else if (keyName == "KEY_PPAGE")
+  {
+    return "PgUp";
+  }
+  else if (keyName == "KEY_NPAGE")
+  {
+    return "PgDn";
+  }
+  else if (keyName == "KEY_HOME")
+  {
+    return "Home";
+  }
+  else if (keyName == "KEY_END")
+  {
+    return "End";
+  }
+  else if (keyName == "KEY_DC")
+  {
+    return "Del";
+  }
+  else if (keyName == "KEY_CTRL[")
+  {
+    return "Esc";
+  }
+  else if ((keyName.size() >= 6) && (keyName.substr(0, 5) == "KEY_F") && StrUtil::IsInteger(keyName.substr(5)))
+  {
+    return "F" + keyName.substr(5);
   }
 
   return "";

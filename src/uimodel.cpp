@@ -38,6 +38,7 @@
 #include "uifilelistdialog.h"
 #include "uikeyconfig.h"
 #include "uikeyinput.h"
+#include "uihelpdialog.h"
 #include "uimessagedialog.h"
 #include "uitextinputdialog.h"
 #include "uiview.h"
@@ -136,13 +137,6 @@ void UiModel::Impl::OnKeyIncreaseListWidth()
 {
   AnyUserKeyInput();
   m_View->IncreaseListWidth();
-  ReinitView();
-}
-
-void UiModel::Impl::OnKeyToggleHelp()
-{
-  AnyUserKeyInput();
-  m_View->SetHelpEnabled(!m_View->GetHelpEnabled());
   ReinitView();
 }
 
@@ -4771,8 +4765,7 @@ void UiModel::KeyHandler(wint_t p_Key)
   }
   else if (p_Key == keyToggleHelp)
   {
-    std::unique_lock<owned_mutex> lock(m_ModelMutex);
-    GetImpl().OnKeyToggleHelp();
+    OnKeyToggleHelp();
   }
   else if (p_Key == keyToggleOthers)
   {
@@ -5719,6 +5712,20 @@ void UiModel::OnKeyDeleteChat()
 
   std::unique_lock<owned_mutex> lock(m_ModelMutex);
   GetImpl().OnKeyDeleteChat();
+}
+
+void UiModel::OnKeyToggleHelp()
+{
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    GetImpl().AnyUserKeyInput();
+  }
+
+  // Open modal dialog without model mutex held
+  UiDialogParams params(this, "Ayuda", 0.85, 0.85);
+  UiHelpDialog helpDialog(params);
+  helpDialog.Run();
+  ReinitView();
 }
 
 void UiModel::OnKeyArchiveChat()
