@@ -160,7 +160,8 @@ void MessageCache::AddFromServiceMessage(const std::string& p_ProfileId,
         std::shared_ptr<NewMessageStatusNotify> newMessageStatusNotify =
           std::static_pointer_cast<NewMessageStatusNotify>(p_ServiceMessage);
         MessageCache::UpdateMessageIsRead(p_ProfileId, newMessageStatusNotify->chatId,
-                                          newMessageStatusNotify->msgId, newMessageStatusNotify->isRead);
+                                          newMessageStatusNotify->msgId, newMessageStatusNotify->isRead,
+                                          newMessageStatusNotify->deliveryStatus);
       }
       break;
 
@@ -531,7 +532,19 @@ void MessageCache::AddProfile(const std::string& p_ProfileId, bool p_CheckSequen
         "SET schema = ?;" << schemaVersion;
     }
 
-    static const int64_t s_SchemaVersion = 12;
+    if (schemaVersion == 12)
+    {
+      LOG_INFO("update db schema 12 to 13");
+
+      // -1 = DeliveryStatusUnknown, used for messages cached before delivery status tracking
+      *m_Dbs[p_ProfileId] << "ALTER TABLE messages ADD COLUMN deliveryStatus INT DEFAULT -1;";
+
+      schemaVersion = 13;
+      *m_Dbs[p_ProfileId] << "UPDATE version "
+        "SET schema = ?;" << schemaVersion;
+    }
+
+    static const int64_t s_SchemaVersion = 13;
     if (schemaVersion > s_SchemaVersion)
     {
       LOG_WARNING("cache db schema %d from newer nchat version detected, if cache issues are encountered "
@@ -863,7 +876,7 @@ void MessageCache::UpdateMessageIsPinned(const std::string& p_ProfileId, const s
 }
 
 void MessageCache::UpdateMessageIsRead(const std::string& p_ProfileId, const std::string& p_ChatId,
-                                       const std::string& p_MsgId, bool p_IsRead)
+                                       const std::string& p_MsgId, bool p_IsRead, int p_DeliveryStatus)
 {
   if (!m_CacheEnabled) return;
 
@@ -872,6 +885,7 @@ void MessageCache::UpdateMessageIsRead(const std::string& p_ProfileId, const std
   updateIsReadRequest->chatId = p_ChatId;
   updateIsReadRequest->msgId = p_MsgId;
   updateIsReadRequest->isRead = p_IsRead;
+  updateIsReadRequest->deliveryStatus = p_DeliveryStatus;
   EnqueueRequest(updateIsReadRequest);
 }
 
@@ -1279,19 +1293,22 @@ void MessageCache::PerformRequest(std::shared_ptr<Request> p_Request)
 
         for (const auto& msg : addMessagesRequest->chatMessages)
         {
-          // Fetch already cached message reactions
+          // Fetch already cached message reactions and delivery status
           Reactions oldReactions;
+          int oldDeliveryStatus = DeliveryStatusUnknown;
           try
           {
             // *INDENT-OFF*
-            *m_Dbs[profileId] << "SELECT reactions FROM " + s_TableMessages + " WHERE chatId = ? AND id = ?;" <<
+            *m_Dbs[profileId] << "SELECT reactions, deliveryStatus FROM " + s_TableMessages + " WHERE chatId = ? AND id = ?;" <<
               chatId << msg.id >>
-              [&](const std::vector<char>& reactionsBytes)
+              [&](const std::vector<char>& reactionsBytes, int32_t deliveryStatus)
               {
                 if (!reactionsBytes.empty())
                 {
                   oldReactions = Serialization::FromBytes<Reactions>(reactionsBytes);
                 }
+
+                oldDeliveryStatus = deliveryStatus;
               };
             // *INDENT-ON*
           }
@@ -1316,10 +1333,11 @@ void MessageCache::PerformRequest(std::shared_ptr<Request> p_Request)
             try
             {
               *m_Dbs[profileId] << "INSERT INTO " + s_TableMessages + " "
-                "(chatId, id, senderId, text, quotedId, quotedText, quotedSender, fileInfo, timeSent, isOutgoing, isRead, isEdited, isDeleted, isPinned, reactions) VALUES "
-                "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);" <<
+                "(chatId, id, senderId, text, quotedId, quotedText, quotedSender, fileInfo, timeSent, isOutgoing, isRead, isEdited, isDeleted, isPinned, reactions, deliveryStatus) VALUES "
+                "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);" <<
                 chatId << msg.id << msg.senderId << msg.text << msg.quotedId << msg.quotedText << msg.quotedSender <<
-                msg.fileInfo << msg.timeSent << msg.isOutgoing << msg.isRead << msg.isEdited << msg.isDeleted << msg.isPinned << reactionsBytes;
+                msg.fileInfo << msg.timeSent << msg.isOutgoing << msg.isRead << msg.isEdited << msg.isDeleted << msg.isPinned << reactionsBytes <<
+                std::max(oldDeliveryStatus, msg.deliveryStatus);
             }
             catch (const sqlite::sqlite_exception& ex)
             {
@@ -1341,10 +1359,11 @@ void MessageCache::PerformRequest(std::shared_ptr<Request> p_Request)
             try
             {
               *m_Dbs[profileId] << "INSERT INTO " + s_TableMessages + " "
-                "(chatId, id, senderId, text, quotedId, quotedText, quotedSender, fileInfo, timeSent, isOutgoing, isRead, isEdited, isDeleted, isPinned, reactions) VALUES "
-                "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);" <<
+                "(chatId, id, senderId, text, quotedId, quotedText, quotedSender, fileInfo, timeSent, isOutgoing, isRead, isEdited, isDeleted, isPinned, reactions, deliveryStatus) VALUES "
+                "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);" <<
                 chatId << msg.id << msg.senderId << msg.text << msg.quotedId << msg.quotedText << msg.quotedSender <<
-                msg.fileInfo << msg.timeSent << msg.isOutgoing << msg.isRead << msg.isEdited << msg.isDeleted << msg.isPinned << reactionsBytes;
+                msg.fileInfo << msg.timeSent << msg.isOutgoing << msg.isRead << msg.isEdited << msg.isDeleted << msg.isPinned << reactionsBytes <<
+                std::max(oldDeliveryStatus, msg.deliveryStatus);
             }
             catch (const sqlite::sqlite_exception& ex)
             {
@@ -1905,18 +1924,30 @@ void MessageCache::PerformRequest(std::shared_ptr<Request> p_Request)
         const std::string& chatId = updateIsReadRequest->chatId;
         const std::string& msgId = updateIsReadRequest->msgId;
         bool isRead = updateIsReadRequest->isRead;
+        int deliveryStatus = updateIsReadRequest->deliveryStatus;
 
         try
         {
-          *m_Dbs[profileId] << "UPDATE " + s_TableMessages + " SET isRead = ? WHERE chatId = ? AND id = ?;" <<
-            (int)isRead << chatId << msgId;
+          if (deliveryStatus == DeliveryStatusUnknown)
+          {
+            *m_Dbs[profileId] << "UPDATE " + s_TableMessages + " SET isRead = ? WHERE chatId = ? AND id = ?;" <<
+              (int)isRead << chatId << msgId;
+          }
+          else
+          {
+            // delivery status (and read state of outgoing messages) never decreases
+            *m_Dbs[profileId] << "UPDATE " + s_TableMessages + " SET "
+              "deliveryStatus = MAX(COALESCE(deliveryStatus, -1), ?), isRead = MAX(COALESCE(isRead, 0), ?) "
+              "WHERE chatId = ? AND id = ?;" <<
+              deliveryStatus << (int)isRead << chatId << msgId;
+          }
         }
         catch (const sqlite::sqlite_exception& ex)
         {
           HANDLE_SQLITE_EXCEPTION(ex);
         }
 
-        LOG_DEBUG("cache update read %s %s %d", chatId.c_str(), msgId.c_str(), isRead);
+        LOG_DEBUG("cache update read %s %s %d %d", chatId.c_str(), msgId.c_str(), isRead, deliveryStatus);
       }
       break;
 
@@ -2230,14 +2261,14 @@ void MessageCache::PerformFetchMessagesFrom(const std::string& p_ProfileId, cons
     // *INDENT-OFF*
     *m_Dbs[p_ProfileId] <<
       "SELECT id, senderId, text, quotedId, quotedText, quotedSender, fileInfo, reactions, timeSent, "
-      "isOutgoing, isRead, isEdited, isDeleted, isPinned FROM " + s_TableMessages + " WHERE chatId = ? AND timeSent < ? "
+      "isOutgoing, isRead, isEdited, isDeleted, isPinned, deliveryStatus FROM " + s_TableMessages + " WHERE chatId = ? AND timeSent < ? "
       "ORDER BY timeSent DESC LIMIT ?;" << p_ChatId << p_FromMsgIdTimeSent << p_Limit >>
       [&](const std::string& id, const std::string& senderId, const std::string& text,
           const std::string& quotedId, const std::string& quotedText,
           const std::string& quotedSender, const std::string& fileInfo,
           std::vector<char> reactionsBytes,
           int64_t timeSent, int32_t isOutgoing, int32_t isRead, int32_t isEdited, int32_t isDeleted,
-          int32_t isPinned)
+          int32_t isPinned, int32_t deliveryStatus)
       {
         ChatMessage chatMessage;
         chatMessage.id = id;
@@ -2253,6 +2284,7 @@ void MessageCache::PerformFetchMessagesFrom(const std::string& p_ProfileId, cons
         chatMessage.isEdited = isEdited;
         chatMessage.isDeleted = isDeleted;
         chatMessage.isPinned = isPinned;
+        chatMessage.deliveryStatus = deliveryStatus;
 
         if (!reactionsBytes.empty())
         {
@@ -2278,13 +2310,13 @@ void MessageCache::PerformFetchOneMessage(const std::string& p_ProfileId, const 
     // *INDENT-OFF*
     *m_Dbs[p_ProfileId] <<
       "SELECT id, senderId, text, quotedId, quotedText, quotedSender, fileInfo, reactions, timeSent, "
-      "isOutgoing, isRead, isEdited, isDeleted, isPinned FROM " + s_TableMessages + " WHERE chatId = ? AND id = ?;" << p_ChatId << p_MsgId >>
+      "isOutgoing, isRead, isEdited, isDeleted, isPinned, deliveryStatus FROM " + s_TableMessages + " WHERE chatId = ? AND id = ?;" << p_ChatId << p_MsgId >>
       [&](const std::string& id, const std::string& senderId, const std::string& text,
           const std::string& quotedId, const std::string& quotedText,
           const std::string& quotedSender, const std::string& fileInfo,
           std::vector<char> reactionsBytes,
           int64_t timeSent, int32_t isOutgoing, int32_t isRead, int32_t isEdited, int32_t isDeleted,
-          int32_t isPinned)
+          int32_t isPinned, int32_t deliveryStatus)
       {
         ChatMessage chatMessage;
         chatMessage.id = id;
@@ -2300,6 +2332,7 @@ void MessageCache::PerformFetchOneMessage(const std::string& p_ProfileId, const 
         chatMessage.isEdited = isEdited;
         chatMessage.isDeleted = isDeleted;
         chatMessage.isPinned = isPinned;
+        chatMessage.deliveryStatus = deliveryStatus;
 
         if (!reactionsBytes.empty())
         {

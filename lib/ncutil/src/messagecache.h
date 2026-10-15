@@ -177,6 +177,7 @@ private:
     std::string chatId;
     std::string msgId;
     bool isRead = false;
+    int deliveryStatus = DeliveryStatusUnknown;
   };
 
   class UpdateMessageIsPinnedRequest : public Request
@@ -287,7 +288,7 @@ public:
   static std::vector<std::string> GetChatIdsSync(const std::string& p_ProfileId);
   static void UpdateMessageIsRead(const std::string& p_ProfileId, const std::string& p_ChatId,
                                   const std::string& p_MsgId,
-                                  bool p_IsRead);
+                                  bool p_IsRead, int p_DeliveryStatus = DeliveryStatusUnknown);
   static void UpdateMessageIsPinned(const std::string& p_ProfileId, const std::string& p_ChatId,
                                     const std::string& p_MsgId,
                                     bool p_IsPinned);

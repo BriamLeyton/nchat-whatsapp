@@ -432,7 +432,6 @@ void UiHistoryView::Draw()
       return colorPairGroup;
     }();
 
-    wattron(m_PaddedWin, attributeName | colorPairName);
     std::string name = m_Model->GetContactNameLocked(currentChat.first, msg.senderId);
     if (!emojiEnabled)
     {
@@ -455,25 +454,85 @@ void UiHistoryView::Draw()
 
     m_Model->MarkReadLocked(currentChat.first, currentChat.second, *it, (!msg.isOutgoing && !msg.isRead));
 
-    static const std::string readIndicator = " " + UiConfig::GetStr("read_indicator");
     static const std::string editedIndicator = " " + UiConfig::GetStr("edited_indicator");
     static const std::string pinnedIndicator = " " + UiConfig::GetStr("pinned_indicator");
-    std::wstring wreceipt = StrUtil::ToWString(msg.isRead ? readIndicator : "");
     std::wstring wedited = StrUtil::ToWString(msg.isEdited ? editedIndicator : "");
     std::wstring wpinned = StrUtil::ToWString(msg.isPinned ? pinnedIndicator : "");
-    std::wstring wheader = wsender + wtime + wreceipt + wedited + wpinned;
+    std::wstring wheader = wsender + wtime;
+    std::wstring wtrailer = wedited + wpinned;
 
     if (developerMode)
     {
-      wheader = wheader +
+      wtrailer = wtrailer +
         L" msg " + StrUtil::ToWString(msg.id) +
         L" user " + StrUtil::ToWString(msg.senderId);
     }
 
-    std::wstring wdisp = StrUtil::TrimPadWString(wheader, m_PaddedW);
-    mvwaddnwstr(m_PaddedWin, y, 0, wdisp.c_str(), std::min((int)wdisp.size(), m_PaddedW));
+    // Delivery status of outgoing (not pending) messages, inferred for messages cached before tracking
+    std::wstring wreceipt;
+    int colorPairReceipt = colorPairName;
+    if (msg.isOutgoing && (msg.timeSent != std::numeric_limits<int64_t>::max()))
+    {
+      static const std::wstring sentIndicator =
+        L" " + StrUtil::ToWString(UiConfig::GetStr("receipt_sent_indicator"));
+      static const std::wstring deliveredIndicator =
+        L" " + StrUtil::ToWString(UiConfig::GetStr("receipt_delivered_indicator"));
+      static const std::wstring readIndicator =
+        L" " + StrUtil::ToWString(UiConfig::GetStr("receipt_read_indicator"));
+      static const int colorPairReceiptSent = UiColorConfig::GetColorPair("history_receipt_sent_color");
+      static const int colorPairReceiptDelivered = UiColorConfig::GetColorPair("history_receipt_delivered_color");
+      static const int colorPairReceiptRead = UiColorConfig::GetColorPair("history_receipt_read_color");
 
-    wattroff(m_PaddedWin, attributeName | colorPairName);
+      int deliveryStatus = msg.deliveryStatus;
+      if (deliveryStatus == DeliveryStatusUnknown)
+      {
+        deliveryStatus = msg.isRead ? DeliveryStatusRead : DeliveryStatusDelivered;
+      }
+
+      if (deliveryStatus >= DeliveryStatusRead)
+      {
+        wreceipt = readIndicator;
+        colorPairReceipt = colorPairReceiptRead;
+      }
+      else if (deliveryStatus == DeliveryStatusDelivered)
+      {
+        wreceipt = deliveredIndicator;
+        colorPairReceipt = colorPairReceiptDelivered;
+      }
+      else
+      {
+        wreceipt = sentIndicator;
+        colorPairReceipt = colorPairReceiptSent;
+      }
+    }
+
+    // Header segments: sender and time, delivery status (own color), and trailing indicators padded
+    // to full width. Each segment is truncated to the remaining width.
+    int x = 0;
+    auto drawSegment = [&](const std::wstring& p_Segment, int p_ColorPair, bool p_Pad)
+    {
+      const int remainW = m_PaddedW - x;
+      if (remainW <= 0) return;
+
+      std::wstring wdisp = p_Segment;
+      if (p_Pad || (StrUtil::WStringWidth(wdisp) > remainW))
+      {
+        wdisp = StrUtil::TrimPadWString(wdisp, remainW);
+      }
+
+      wattron(m_PaddedWin, attributeName | p_ColorPair);
+      mvwaddnwstr(m_PaddedWin, y, x, wdisp.c_str(), std::min((int)wdisp.size(), remainW));
+      wattroff(m_PaddedWin, attributeName | p_ColorPair);
+      x += StrUtil::WStringWidth(wdisp);
+    };
+
+    drawSegment(wheader, colorPairName, false);
+    if (!wreceipt.empty())
+    {
+      drawSegment(wreceipt, colorPairReceipt, false);
+    }
+
+    drawSegment(wtrailer, colorPairName, true);
 
     ++m_HistoryShowCount;
 

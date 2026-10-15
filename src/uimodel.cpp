@@ -1941,12 +1941,22 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
         std::string chatId = newMessageStatusNotify->chatId;
         std::string msgId = newMessageStatusNotify->msgId;
         bool isRead = newMessageStatusNotify->isRead;
-        LOG_TRACE("new read status %s is %s", msgId.c_str(), (isRead ? "read" : "unread"));
+        int deliveryStatus = newMessageStatusNotify->deliveryStatus;
+        LOG_TRACE("new read status %s is %s delivery %d", msgId.c_str(), (isRead ? "read" : "unread"), deliveryStatus);
         std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
         auto mit = messages.find(msgId);
         if (mit != messages.end())
         {
-          mit->second.isRead = isRead;
+          if (deliveryStatus == DeliveryStatusUnknown)
+          {
+            mit->second.isRead = isRead;
+          }
+          else
+          {
+            // delivery status (and read state of outgoing messages) never decreases
+            mit->second.deliveryStatus = std::max(mit->second.deliveryStatus, deliveryStatus);
+            mit->second.isRead = mit->second.isRead || isRead;
+          }
         }
 
         UpdateChatInfoIsUnread(profileId, chatId);

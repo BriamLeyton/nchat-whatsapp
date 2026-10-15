@@ -158,6 +158,16 @@ enum FileStatus
   FileStatusDownloadFailed = 3,
 };
 
+// Delivery status of outgoing messages, ordered so that status never decreases
+enum DeliveryStatus
+{
+  DeliveryStatusUnknown = -1, // not tracked (incoming, other protocols, or cached before tracking)
+  DeliveryStatusNone = 0,
+  DeliveryStatusSent = 1,
+  DeliveryStatusDelivered = 2,
+  DeliveryStatusRead = 3,
+};
+
 struct FileInfo
 {
   FileStatus fileStatus = FileStatusNone;
@@ -210,6 +220,7 @@ struct ChatMessage
   bool isDeleted = false;
   bool isPinned = false;
   bool hasMention = false; // only required for tgchat, not db cached
+  int deliveryStatus = DeliveryStatusUnknown;
 };
 
 enum DownloadFileAction
@@ -622,6 +633,7 @@ public:
   std::string chatId;
   std::string msgId;
   bool isRead = false;
+  int deliveryStatus = DeliveryStatusUnknown;
 };
 
 class NewMessageIsPinnedNotify : public ServiceMessage

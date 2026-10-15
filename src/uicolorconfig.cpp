@@ -8,6 +8,7 @@
 #include "uicolorconfig.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <map>
 #include <string>
 
@@ -32,6 +33,9 @@ void UiColorConfig::Init()
   const std::string defaultShadedColor = (COLORS > 8) ? "gray" : "";
   const std::string defaultQuotedColor = (COLORS > 8) ? "gray" : "";
   const std::string defaultAttachmentColor = (COLORS > 8) ? "gray" : "";
+  // WhatsApp tick colors, terminals unable to set custom colors get nearest palette color (or blue/gray)
+  const std::string defaultReceiptColor = (COLORS > 8) ? "0x8696a0" : "";
+  const std::string defaultReceiptReadColor = (COLORS > 8) ? "0x53bdeb" : "blue";
   const std::map<std::string, std::string> defaultConfig =
   {
     { "top_attr", "reverse" },
@@ -79,6 +83,13 @@ void UiColorConfig::Init()
     { "history_name_recv_color_fg", "" },
     { "history_name_recv_group_color_bg", "" },
     { "history_name_recv_group_color_fg", "" },
+
+    { "history_receipt_sent_color_bg", "" },
+    { "history_receipt_sent_color_fg", defaultReceiptColor },
+    { "history_receipt_delivered_color_bg", "" },
+    { "history_receipt_delivered_color_fg", defaultReceiptColor },
+    { "history_receipt_read_color_bg", "" },
+    { "history_receipt_read_color_fg", defaultReceiptReadColor },
 
     { "dialog_attr", "" },
     { "dialog_attr_selected", "reverse" },
@@ -212,6 +223,45 @@ int UiColorConfig::GetAttribute(const std::string& p_Param)
   return A_NORMAL;
 }
 
+int UiColorConfig::GetNearestXterm256Color(uint32_t p_R, uint32_t p_G, uint32_t p_B)
+{
+  // xterm 256 color palette: 6x6x6 color cube at 16-231 and 24 step grayscale at 232-255
+  static const int cubeLevels[] = { 0, 95, 135, 175, 215, 255 };
+  auto nearestCubeIndex = [&](uint32_t p_Value)
+  {
+    int best = 0;
+    for (int i = 1; i < 6; ++i)
+    {
+      if (std::abs((int)p_Value - cubeLevels[i]) < std::abs((int)p_Value - cubeLevels[best]))
+      {
+        best = i;
+      }
+    }
+
+    return best;
+  };
+
+  auto distance = [&](int p_R2, int p_G2, int p_B2)
+  {
+    return (((int)p_R - p_R2) * ((int)p_R - p_R2)) + (((int)p_G - p_G2) * ((int)p_G - p_G2)) +
+           (((int)p_B - p_B2) * ((int)p_B - p_B2));
+  };
+
+  const int ri = nearestCubeIndex(p_R);
+  const int gi = nearestCubeIndex(p_G);
+  const int bi = nearestCubeIndex(p_B);
+  const int cubeColor = 16 + (36 * ri) + (6 * gi) + bi;
+  const int cubeDistance = distance(cubeLevels[ri], cubeLevels[gi], cubeLevels[bi]);
+
+  const int average = (int)(p_R + p_G + p_B) / 3;
+  const int grayIndex = std::min(23, std::max(0, (average - 8 + 5) / 10));
+  const int grayLevel = 8 + (10 * grayIndex);
+  const int grayColor = 232 + grayIndex;
+  const int grayDistance = distance(grayLevel, grayLevel, grayLevel);
+
+  return (grayDistance < cubeDistance) ? grayColor : cubeColor;
+}
+
 int UiColorConfig::GetColorId(const std::string& p_Str)
 {
   static const std::map<std::string, int> standardColors = []()
@@ -256,13 +306,24 @@ int UiColorConfig::GetColorId(const std::string& p_Str)
   // hex
   if ((p_Str.size() == 8) && (p_Str.substr(0, 2) == "0x"))
   {
+    uint32_t r = 0, g = 0, b = 0;
     if (!can_change_color())
     {
+      if (COLORS >= 256)
+      {
+        HexToRGB(p_Str, r, g, b);
+        if ((r <= 255) && (g <= 255) && (b <= 255))
+        {
+          int colorId = GetNearestXterm256Color(r, g, b);
+          LOG_DEBUG("terminal cannot set custom hex colors, using nearest %d for \"%s\"", colorId, p_Str.c_str());
+          return colorId;
+        }
+      }
+
       LOG_WARNING("terminal cannot set custom hex colors, skipping \"%s\"", p_Str.c_str());
       return -1;
     }
 
-    uint32_t r = 0, g = 0, b = 0;
     HexToRGB(p_Str, r, g, b);
     if ((r <= 255) && (g <= 255) && (b <= 255))
     {

@@ -163,10 +163,12 @@ func AddConn(conn *whatsmeow.Client, path string, sendType int) int {
 	sendTypes[connId] = sendType
 	namesSynced[connId] = false
 	mx.Unlock()
+	OpenReceiptsDb(connId, path)
 	return connId
 }
 
 func RemoveConn(connId int) {
+	CloseReceiptsDb(connId)
 	mx.Lock()
 	SaveMap(GetContactsStorePath(paths[connId]), contacts[connId])
 	SaveMap(GetSendersStorePath(paths[connId]), senders[connId])
@@ -921,33 +923,50 @@ func (handler *WmEventHandler) HandleConnected() {
 }
 
 func (handler *WmEventHandler) HandleReceipt(receipt *events.Receipt) {
-	if receipt.Type == events.ReceiptTypeRead || receipt.Type == events.ReceiptTypeReadSelf {
-		LOG_TRACE(fmt.Sprintf("%#v was read by %s at %s", receipt.MessageIDs, receipt.SourceString(), receipt.Timestamp))
-		connId := handler.connId
-		var client *whatsmeow.Client = GetClient(connId)
-		if client == nil {
-			LOG_WARNING("client is nil")
-			return
-		}
-		chatId := GetChatId(client, &receipt.MessageSource.Chat, nil)
-		isRead := true
-		for _, msgId := range receipt.MessageIDs {
-			LOG_TRACE(fmt.Sprintf("Call CWmNewMessageStatusNotify"))
-			CWmNewMessageStatusNotify(connId, chatId, msgId, BoolToInt(isRead))
-		}
-	} else if receipt.Type == types.ReceiptTypePlayed || receipt.Type == types.ReceiptTypePlayedSelf {
+	connId := handler.connId
+	var client *whatsmeow.Client = GetClient(connId)
+	if client == nil {
+		LOG_WARNING("client is nil")
+		return
+	}
+
+	chatId := GetChatId(client, &receipt.MessageSource.Chat, nil)
+
+	var status int
+	switch receipt.Type {
+	case types.ReceiptTypeReadSelf, types.ReceiptTypePlayedSelf:
+		// own read (from another device) of incoming messages, does not affect delivery status.
 		// played receipts are sent for view-once media and for voice notes; treat both as read.
-		connId := handler.connId
-		var client *whatsmeow.Client = GetClient(connId)
-		if client == nil {
-			LOG_WARNING("client is nil")
-			return
-		}
-		chatId := GetChatId(client, &receipt.MessageSource.Chat, nil)
-		isRead := true
+		LOG_TRACE(fmt.Sprintf("%#v was read by self at %s", receipt.MessageIDs, receipt.Timestamp))
 		for _, msgId := range receipt.MessageIDs {
-			LOG_TRACE(fmt.Sprintf("Call CWmNewMessageStatusNotify"))
-			CWmNewMessageStatusNotify(connId, chatId, msgId, BoolToInt(isRead))
+			CWmNewMessageStatusNotify(connId, chatId, msgId, BoolToInt(true), DeliveryStatusUnknown)
+		}
+		return
+
+	case types.ReceiptTypeDelivered:
+		status = DeliveryStatusDelivered
+
+	case types.ReceiptTypeRead, types.ReceiptTypePlayed:
+		status = DeliveryStatusRead
+
+	default:
+		LOG_TRACE(fmt.Sprintf("receipt type %q ignore", receipt.Type))
+		return
+	}
+
+	if receipt.IsFromMe {
+		// receipts from own other devices do not count as recipients
+		return
+	}
+
+	LOG_TRACE(fmt.Sprintf("%#v receipt %q from %s at %s", receipt.MessageIDs, receipt.Type, receipt.SourceString(),
+		receipt.Timestamp))
+	for _, msgId := range receipt.MessageIDs {
+		newStatus, changed := UpdateDeliveryStatus(connId, client, receipt.Chat, chatId, msgId, receipt.Sender, status,
+			receipt.IsGroup)
+		if changed {
+			LOG_TRACE(fmt.Sprintf("Call CWmNewMessageStatusNotify %s %d", msgId, newStatus))
+			CWmNewMessageStatusNotify(connId, chatId, msgId, BoolToInt(newStatus >= DeliveryStatusRead), newStatus)
 		}
 	}
 }
@@ -982,7 +1001,7 @@ func (handler *WmEventHandler) HandleUndecryptableMessage(evt *events.Undecrypta
 
 	LOG_TRACE(fmt.Sprintf("Call CWmNewMessagesNotify %s: view once placeholder", chatId))
 	CWmNewMessagesNotify(connId, chatId, msgId, senderId, text, BoolToInt(fromMe), "" /*quotedId*/, "" /*fileId*/, "" /*filePath*/, FileStatusNone, timeSent,
-		BoolToInt(isRead), BoolToInt(false) /*isEdited*/)
+		BoolToInt(isRead), BoolToInt(false) /*isEdited*/, GetOutgoingDeliveryStatus(connId, chatId, msgId, fromMe, false /*isSyncRead*/))
 }
 
 func (handler *WmEventHandler) HandlePresence(presence *events.Presence) {
@@ -1220,7 +1239,7 @@ func (handler *WmEventHandler) HandleGroupInfo(groupInfo *events.GroupInfo) {
 
 	LOG_TRACE(fmt.Sprintf("Call CWmNewMessagesNotify %s: %s", chatId, text))
 	CWmNewMessagesNotify(connId, chatId, msgId, senderId, text, BoolToInt(fromMe), quotedId, fileId, filePath, fileStatus, timeSent,
-		BoolToInt(isRead), BoolToInt(isEdited))
+		BoolToInt(isRead), BoolToInt(isEdited), GetOutgoingDeliveryStatus(connId, chatId, msgId, fromMe, isSyncRead))
 }
 
 func (handler *WmEventHandler) HandleDeleteChat(deleteChat *events.DeleteChat) {
@@ -1875,7 +1894,7 @@ func (handler *WmEventHandler) HandleTextMessage(messageInfo types.MessageInfo, 
 
 	LOG_TRACE(fmt.Sprintf("Call CWmNewMessagesNotify %s: %s", chatId, text))
 	CWmNewMessagesNotify(connId, chatId, msgId, senderId, text, BoolToInt(fromMe), quotedId, fileId, filePath, fileStatus, timeSent,
-		BoolToInt(isRead), BoolToInt(isEdited))
+		BoolToInt(isRead), BoolToInt(isEdited), GetOutgoingDeliveryStatus(connId, chatId, msgId, fromMe, isSyncRead))
 }
 
 func (handler *WmEventHandler) HandleImageMessage(messageInfo types.MessageInfo, msg *waE2E.Message, isSyncRead bool) {
@@ -1931,7 +1950,7 @@ func (handler *WmEventHandler) HandleImageMessage(messageInfo types.MessageInfo,
 
 	LOG_TRACE(fmt.Sprintf("Call CWmNewMessagesNotify %s: image", chatId))
 	CWmNewMessagesNotify(connId, chatId, msgId, senderId, text, BoolToInt(fromMe), quotedId, fileId, filePath, fileStatus, timeSent,
-		BoolToInt(isRead), BoolToInt(isEdited))
+		BoolToInt(isRead), BoolToInt(isEdited), GetOutgoingDeliveryStatus(connId, chatId, msgId, fromMe, isSyncRead))
 }
 
 func (handler *WmEventHandler) HandleVideoMessage(messageInfo types.MessageInfo, msg *waE2E.Message, isSyncRead bool) {
@@ -1991,7 +2010,7 @@ func (handler *WmEventHandler) HandleVideoMessage(messageInfo types.MessageInfo,
 
 	LOG_TRACE(fmt.Sprintf("Call CWmNewMessagesNotify %s: video", chatId))
 	CWmNewMessagesNotify(connId, chatId, msgId, senderId, text, BoolToInt(fromMe), quotedId, fileId, filePath, fileStatus, timeSent,
-		BoolToInt(isRead), BoolToInt(isEdited))
+		BoolToInt(isRead), BoolToInt(isEdited), GetOutgoingDeliveryStatus(connId, chatId, msgId, fromMe, isSyncRead))
 }
 
 func (handler *WmEventHandler) HandleAudioMessage(messageInfo types.MessageInfo, msg *waE2E.Message, isSyncRead bool) {
@@ -2043,7 +2062,7 @@ func (handler *WmEventHandler) HandleAudioMessage(messageInfo types.MessageInfo,
 
 	LOG_TRACE(fmt.Sprintf("Call CWmNewMessagesNotify %s: audio", chatId))
 	CWmNewMessagesNotify(connId, chatId, msgId, senderId, text, BoolToInt(fromMe), quotedId, fileId, filePath, fileStatus, timeSent,
-		BoolToInt(isRead), BoolToInt(isEdited))
+		BoolToInt(isRead), BoolToInt(isEdited), GetOutgoingDeliveryStatus(connId, chatId, msgId, fromMe, isSyncRead))
 }
 
 func (handler *WmEventHandler) HandleDocumentMessage(messageInfo types.MessageInfo, msg *waE2E.Message, isSyncRead bool) {
@@ -2096,7 +2115,7 @@ func (handler *WmEventHandler) HandleDocumentMessage(messageInfo types.MessageIn
 
 	LOG_TRACE(fmt.Sprintf("Call CWmNewMessagesNotify %s: document", chatId))
 	CWmNewMessagesNotify(connId, chatId, msgId, senderId, text, BoolToInt(fromMe), quotedId, fileId, filePath, fileStatus, timeSent,
-		BoolToInt(isRead), BoolToInt(isEdited))
+		BoolToInt(isRead), BoolToInt(isEdited), GetOutgoingDeliveryStatus(connId, chatId, msgId, fromMe, isSyncRead))
 }
 
 func (handler *WmEventHandler) HandleStickerMessage(messageInfo types.MessageInfo, msg *waE2E.Message, isSyncRead bool) {
@@ -2148,7 +2167,7 @@ func (handler *WmEventHandler) HandleStickerMessage(messageInfo types.MessageInf
 
 	LOG_TRACE(fmt.Sprintf("Call CWmNewMessagesNotify %s: sticker", chatId))
 	CWmNewMessagesNotify(connId, chatId, msgId, senderId, text, BoolToInt(fromMe), quotedId, fileId, filePath, fileStatus, timeSent,
-		BoolToInt(isRead), BoolToInt(isEdited))
+		BoolToInt(isRead), BoolToInt(isEdited), GetOutgoingDeliveryStatus(connId, chatId, msgId, fromMe, isSyncRead))
 }
 
 func (handler *WmEventHandler) HandleTemplateMessage(messageInfo types.MessageInfo, msg *waE2E.Message, isSyncRead bool) {
@@ -2245,7 +2264,7 @@ func (handler *WmEventHandler) HandleTemplateMessage(messageInfo types.MessageIn
 
 	LOG_TRACE(fmt.Sprintf("Call CWmNewMessagesNotify %s: template", chatId))
 	CWmNewMessagesNotify(connId, chatId, msgId, senderId, text, BoolToInt(fromMe), quotedId, fileId, filePath, fileStatus, timeSent,
-		BoolToInt(isRead), BoolToInt(isEdited))
+		BoolToInt(isRead), BoolToInt(isEdited), GetOutgoingDeliveryStatus(connId, chatId, msgId, fromMe, isSyncRead))
 }
 
 func (handler *WmEventHandler) HandleReactionMessage(messageInfo types.MessageInfo, msg *waE2E.Message, isSyncRead bool) {
@@ -2558,7 +2577,7 @@ func (handler *WmEventHandler) HandleUnsupportedMessage(messageInfo types.Messag
 
 	LOG_TRACE(fmt.Sprintf("Call CWmNewMessagesNotify %s: %s", chatId, text))
 	CWmNewMessagesNotify(connId, chatId, msgId, senderId, text, BoolToInt(fromMe), quotedId, fileId, filePath, fileStatus, timeSent,
-		BoolToInt(isRead), BoolToInt(isEdited))
+		BoolToInt(isRead), BoolToInt(isEdited), GetOutgoingDeliveryStatus(connId, chatId, msgId, fromMe, isSyncRead))
 }
 
 func ResetTypingStatus(connId int, chatId string, userId string, fromMe bool, isSyncRead bool) {

@@ -24,6 +24,7 @@ public:
 
 private:
   static int GetColorId(const std::string& p_Str);
+  static int GetNearestXterm256Color(uint32_t p_R, uint32_t p_G, uint32_t p_B);
   static void HexToRGB(const std::string p_Str, uint32_t& p_R, uint32_t& p_G, uint32_t& p_B);
   static size_t CalcChecksum(const std::string& p_Str);
 
