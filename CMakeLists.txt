@@ -428,6 +428,8 @@ add_executable(nchat
   src/uihelpview.h
   src/uihistoryview.cpp
   src/uihistoryview.h
+  src/uiimage.cpp
+  src/uiimage.h
   src/uikeyconfig.cpp
   src/uikeyconfig.h
   src/uikeydump.cpp
@@ -510,8 +512,19 @@ else()
   target_compile_options(nchat PUBLIC ${NCURSES_CFLAGS})
 endif()
 
+# Dependency stb (vendored, inline image decoding and resizing)
+add_library(stbimpl STATIC ext/stb/stbimpl.cpp)
+set_target_properties(stbimpl PROPERTIES POSITION_INDEPENDENT_CODE ON COMPILE_FLAGS "-w")
+target_include_directories(nchat SYSTEM PRIVATE "ext/stb")
+
+# Dependency libwebp (inline image decoding of stickers)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(WEBP REQUIRED libwebp libwebpdemux)
+target_include_directories(nchat SYSTEM PRIVATE ${WEBP_INCLUDE_DIRS})
+
 # Linking
-target_link_libraries(nchat PUBLIC ncutil pthread ${CURSES_LIBRARIES} ${CMAKE_DL_LIBS})
+target_link_libraries(nchat PUBLIC ncutil pthread ${CURSES_LIBRARIES} ${CMAKE_DL_LIBS}
+                      stbimpl ${WEBP_LINK_LIBRARIES})
 
 # Optionals
 if(HAS_DUMMY)

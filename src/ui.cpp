@@ -21,6 +21,7 @@
 #include "uicolorconfig.h"
 #include "uiconfig.h"
 #include "uicontroller.h"
+#include "uiimage.h"
 #include "uikeyconfig.h"
 #include "uikeydump.h"
 #include "uimodel.h"
@@ -49,6 +50,8 @@ void Ui::Init()
     printf("\033]0;%s\007", m_TerminalTitle.c_str());
   }
 
+  UiImage::Init(); // query terminal before ncurses takes over input
+
   printf("\033[?1004h"); // enable terminal focus in/out event
 
   setlocale(LC_ALL, "");
@@ -74,6 +77,7 @@ void Ui::Cleanup()
   UiKeyConfig::Cleanup();
   EmojiList::Cleanup();
 
+  UiImage::Cleanup();
   wclear(stdscr);
   endwin();
 

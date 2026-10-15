@@ -11,10 +11,13 @@
 
 #include <ncurses.h>
 
+#include "uiimage.h"
+
 UiScreen::UiScreen()
 {
   wclear(stdscr);
   wrefresh(stdscr);
+  UiImage::Invalidate(); // full screen clear discards terminal image data
   getmaxyx(stdscr, m_H, m_W);
   m_H = std::max(m_H, 11);
   m_W = std::max(m_W, 29);

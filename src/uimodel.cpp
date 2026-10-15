@@ -28,6 +28,7 @@
 #include "sysutil.h"
 #include "timeutil.h"
 #include "uidialog.h"
+#include "uiimage.h"
 #include "uichatlistdialog.h"
 #include "uiconfig.h"
 #include "uicontactlistdialog.h"
@@ -90,6 +91,7 @@ void UiModel::Impl::TerminalControlPause()
 {
   m_TermLines = LINES;
   m_TermCols = COLS;
+  UiImage::Suspend();
   printf("\033[?1004l"); // disable terminal focus in/out event
   fflush(stdout);
   endwin();
@@ -98,6 +100,7 @@ void UiModel::Impl::TerminalControlPause()
 void UiModel::Impl::TerminalControlResume()
 {
   refresh();
+  UiImage::Invalidate(); // alternate screen re-entry discards terminal image data
   printf("\033[?1004h"); // enable terminal focus in/out event
   fflush(stdout);
   wint_t key = 0;
@@ -116,6 +119,8 @@ void UiModel::Impl::TerminalControlResume()
       TerminalResize();
     }
   }
+
+  UiImage::Resume();
 }
 
 void UiModel::Impl::OnKeyDecreaseListWidth()
@@ -4062,6 +4067,7 @@ void UiModel::Impl::HandleProtocolUiControlEnd()
 {
   LOG_TRACE("handle protocol ui control end");
   refresh();
+  UiImage::Invalidate(); // alternate screen re-entry discards terminal image data
 
   wint_t key = 0;
   while (UiKeyInput::GetWch(&key) != ERR)

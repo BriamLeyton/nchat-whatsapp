@@ -47,6 +47,8 @@ void UiConfig::Init()
     { "help_prefix_ctrl", "^" },
     { "help_prefix_meta", "M-" },
     { "home_fetch_all", "0" },
+    { "inline_image_max_height", "10" },
+    { "inline_images_enabled", "1" },
     { "linefeed_on_enter", "1" },
     { "link_open_command", "" },
     { "list_enabled", "1" },

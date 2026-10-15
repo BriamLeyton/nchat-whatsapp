@@ -16,6 +16,7 @@
 #include "timeutil.h"
 #include "uicolorconfig.h"
 #include "uiconfig.h"
+#include "uiimage.h"
 #include "uimodel.h"
 
 UiHistoryView::UiHistoryView(const UiViewParams& p_Params)
@@ -36,6 +37,9 @@ UiHistoryView::UiHistoryView(const UiViewParams& p_Params)
     werase(m_Win);
     wbkgd(m_Win, attributeTextNormal | colorPairTextRecv | ' ');
     wrefresh(m_Win);
+
+    // view (re)created, any previous placements may be stale
+    UiImage::ClearPlacements();
   }
 }
 
@@ -86,6 +90,13 @@ void UiHistoryView::Draw()
   wbkgd(m_PaddedWin, attributeTextNormal | colorPairTextRecv | ' ');
 
   m_HistoryShowCount = 0;
+
+  static const bool inlineImagesEnabled = UiImage::IsEnabled();
+  static const int inlineImageMaxHeight = std::max(1, UiConfig::GetNum("inline_image_max_height"));
+  std::vector<UiImagePlacement> imagePlacements;
+  int winBegY = 0;
+  int winBegX = 0;
+  getbegyx(m_PaddedWin, winBegY, winBegX);
 
   bool firstMessage = true;
   int y = m_PaddedH - 1;
@@ -172,16 +183,19 @@ void UiHistoryView::Draw()
     }
 
     // File attachment
+    int imageLineIndex = -1; // index in wlines of first inline image row
+    UiImageInfo imageInfo;
     if (!msg.fileInfo.empty())
     {
       FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(msg.fileInfo);
+      const bool isInlineImage = inlineImagesEnabled && UiImage::IsImageFile(fileInfo.filePath);
 
       // special case handling selection-triggered download, and handling cache's old setting
       static const bool isAttachmentPrefetchAll =
         (AppConfig::GetNum("attachment_prefetch") == AttachmentPrefetchAll);
       static const bool isAttachmentPrefetchSelected =
         (AppConfig::GetNum("attachment_prefetch") == AttachmentPrefetchSelected);
-      if (isAttachmentPrefetchAll || (isSelectedMessage && isAttachmentPrefetchSelected))
+      if (isAttachmentPrefetchAll || (isSelectedMessage && isAttachmentPrefetchSelected) || isInlineImage)
       {
         if (!UiModel::IsAttachmentDownloaded(fileInfo) && UiModel::IsAttachmentDownloadable(fileInfo))
         {
@@ -222,6 +236,14 @@ void UiHistoryView::Draw()
 
       std::wstring fileStr = attachmentIndicator + StrUtil::ToWString(fileName + fileStatus);
       wlines.insert(wlines.begin(), fileStr);
+
+      // Inline image rows reserved below attachment line, image placed after refresh
+      if (isInlineImage && (fileInfo.fileStatus == FileStatusDownloaded) &&
+          UiImage::Prepare(fileInfo.filePath, m_PaddedW, inlineImageMaxHeight, imageInfo))
+      {
+        imageLineIndex = 1;
+        wlines.insert(std::next(wlines.begin(), imageLineIndex), imageInfo.rows, std::wstring());
+      }
     }
 
     // Reactions
@@ -309,13 +331,31 @@ void UiHistoryView::Draw()
     const int maxMessageLines = (m_PaddedH - 1);
     if (firstMessage && ((int)wlines.size() > maxMessageLines))
     {
+      // drop inline image if it does not fit, keeping the attachment line
+      if ((imageLineIndex >= 0) && ((imageLineIndex + imageInfo.rows) > (maxMessageLines - 1)))
+      {
+        wlines.erase(std::next(wlines.begin(), imageLineIndex),
+                     std::next(wlines.begin(), imageLineIndex + imageInfo.rows));
+        imageLineIndex = -1;
+      }
+
       wlines.resize(maxMessageLines - 1);
       wlines.push_back(L"[...]");
       reactionLines = 0;
     }
 
+    int imageTopY = -1;
+    int imageVisibleRows = 0;
     for (auto wline = wlines.rbegin(); wline != wlines.rend(); ++wline)
     {
+      const int lineIndex = (int)wlines.size() - 1 - (int)std::distance(wlines.rbegin(), wline);
+      if ((imageLineIndex >= 0) && (lineIndex >= imageLineIndex) &&
+          (lineIndex < (imageLineIndex + imageInfo.rows)))
+      {
+        imageTopY = y;
+        ++imageVisibleRows;
+      }
+
       bool isAttachment = (wline->rfind(attachmentIndicator, 0) == 0);
       bool isQuote = (wline->rfind(quoteIndicator, 0) == 0);
       bool isReaction = (reactionLines == 1) && (std::distance(wline, wlines.rbegin()) == 0);
@@ -358,6 +398,17 @@ void UiHistoryView::Draw()
       }
 
       if (--y < 0) break;
+    }
+
+    if (imageVisibleRows > 0)
+    {
+      UiImagePlacement placement;
+      placement.info = imageInfo;
+      placement.screenY = winBegY + imageTopY;
+      placement.screenX = winBegX;
+      placement.skipRows = imageInfo.rows - imageVisibleRows;
+      placement.visibleRows = imageVisibleRows;
+      imagePlacements.push_back(placement);
     }
 
     if (y < 0) break;
@@ -434,6 +485,11 @@ void UiHistoryView::Draw()
   }
 
   wrefresh(m_PaddedWin);
+
+  if (inlineImagesEnabled)
+  {
+    UiImage::PlaceAll(imagePlacements);
+  }
 }
 
 int UiHistoryView::GetHistoryShowCount()
