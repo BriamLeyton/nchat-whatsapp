@@ -796,12 +796,27 @@ func (handler *WmEventHandler) HandleEvent(rawEvt interface{}) {
 	case *events.AppStateSyncComplete:
 		// this happens after initial logon via QR code
 		LOG_TRACE(fmt.Sprintf("%#v", evt))
+		if evt.Recovery {
+			LOG_INFO(fmt.Sprintf("app state %s recovered from phone, version %d", evt.Name, evt.Version))
+			if client := GetClient(handler.connId); client != nil {
+				client.EmitAppStateEventsOnFullSync = false
+			}
+		}
 		if evt.Name == appstate.WAPatchCriticalBlock {
 			LOG_TRACE("AppStateSyncComplete WAPatchCriticalBlock")
 			handler.HandleConnected()
 		} else if evt.Name == appstate.WAPatchRegular {
 			LOG_TRACE("AppStateSyncComplete WAPatchRegular")
 			handler.HandleSyncContacts()
+		}
+
+	case *events.AppStateSyncError:
+		// local app state corrupted, e.g. pins and archive (regular_low) no longer sync
+		LOG_TRACE(fmt.Sprintf("%#v", evt))
+		if !evt.FullSync && errors.Is(evt.Error, appstate.ErrMismatchingLTHash) {
+			if client := GetClient(handler.connId); client != nil {
+				go ResyncAppState(client, context.TODO(), evt.Name)
+			}
 		}
 
 	case *events.PushNameSetting:
@@ -3615,6 +3630,72 @@ func WmDeleteChat(connId int, chatId string) int {
 	return 0
 }
 
+// ResyncAppState does a full resync of a corrupted app state collection (mismatching LTHash),
+// emitting the resulting events (pin, archive, mute) so the UI gets the current state.
+var appStateResyncMutex sync.Mutex
+var appStateResyncTime = make(map[appstate.WAPatchName]time.Time)
+
+func ResyncAppState(client *whatsmeow.Client, ctx context.Context, name appstate.WAPatchName) error {
+	// serialize resyncs, and skip if one just completed (a failed send also triggers a sync error event)
+	appStateResyncMutex.Lock()
+	defer appStateResyncMutex.Unlock()
+	if time.Since(appStateResyncTime[name]) < 30*time.Second {
+		return nil
+	}
+
+	LOG_WARNING(fmt.Sprintf("app state %s out of sync, doing full resync", name))
+	// keep the flag if a phone recovery is pending, so its events still get emitted
+	prevEmit := client.EmitAppStateEventsOnFullSync
+	client.EmitAppStateEventsOnFullSync = true
+	err := client.FetchAppState(ctx, name, true, false)
+	client.EmitAppStateEventsOnFullSync = prevEmit
+	if err != nil {
+		LOG_WARNING(fmt.Sprintf("app state %s full resync failed %#v", name, err))
+		if errors.Is(err, appstate.ErrMismatchingLTHash) {
+			// server snapshot is also inconsistent, ask the primary device (phone) for a recovery
+			// snapshot, like WhatsApp Web does. Events are emitted when the response arrives.
+			RequestAppStateRecovery(client, ctx, name)
+		}
+	} else {
+		LOG_INFO(fmt.Sprintf("app state %s full resync ok", name))
+		appStateResyncTime[name] = time.Now()
+	}
+	return err
+}
+
+var appStateRecoveryRequested = make(map[appstate.WAPatchName]bool)
+
+// RequestAppStateRecovery asks the primary device for an app state snapshot, once per session
+// per collection. Caller must hold appStateResyncMutex.
+func RequestAppStateRecovery(client *whatsmeow.Client, ctx context.Context, name appstate.WAPatchName) {
+	if appStateRecoveryRequested[name] {
+		return
+	}
+
+	appStateRecoveryRequested[name] = true
+	client.EmitAppStateEventsOnFullSync = true
+	resp, err := client.SendPeerMessage(ctx, whatsmeow.BuildAppStateRecoveryRequest(name))
+	if err != nil {
+		LOG_WARNING(fmt.Sprintf("app state %s recovery request failed %#v", name, err))
+		client.EmitAppStateEventsOnFullSync = false
+		return
+	}
+
+	LOG_INFO(fmt.Sprintf("app state %s recovery requested from phone %s", name, resp.ID))
+}
+
+// SendAppStateWithResync sends an app state patch, and if it fails due to a corrupted local
+// app state, does a full resync of the collection and retries once.
+func SendAppStateWithResync(client *whatsmeow.Client, ctx context.Context, patch appstate.PatchInfo) error {
+	err := client.SendAppState(ctx, patch)
+	if err != nil && errors.Is(err, appstate.ErrMismatchingLTHash) {
+		if ResyncAppState(client, ctx, patch.Type) == nil {
+			err = client.SendAppState(ctx, patch)
+		}
+	}
+	return err
+}
+
 func WmArchiveChat(connId int, chatId string, isArchived int) int {
 
 	LOG_TRACE("archive chat " + strconv.Itoa(connId) + ", " + chatId + ", " + strconv.Itoa(isArchived))
@@ -3633,7 +3714,7 @@ func WmArchiveChat(connId int, chatId string, isArchived int) int {
 	archived := isArchived != 0
 
 	ctx := context.TODO()
-	err := client.SendAppState(ctx, appstate.BuildArchive(chatJid, archived, time.Time{}, nil))
+	err := SendAppStateWithResync(client, ctx, appstate.BuildArchive(chatJid, archived, time.Time{}, nil))
 	if err != nil {
 		LOG_WARNING(fmt.Sprintf("archive chat error %s %#v", chatId, err))
 		return -1
@@ -3661,7 +3742,7 @@ func WmPinChat(connId int, chatId string, isPinned int) int {
 	pin := isPinned != 0
 
 	ctx := context.TODO()
-	err := client.SendAppState(ctx, appstate.BuildPin(chatJid, pin))
+	err := SendAppStateWithResync(client, ctx, appstate.BuildPin(chatJid, pin))
 	if err != nil {
 		LOG_WARNING(fmt.Sprintf("pin chat error %s %#v", chatId, err))
 		return -1
