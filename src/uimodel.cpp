@@ -5722,7 +5722,7 @@ void UiModel::OnKeyToggleHelp()
   }
 
   // Open modal dialog without model mutex held
-  UiDialogParams params(this, "Ayuda", 0.85, 0.85);
+  UiDialogParams params(this, "Help", 0.85, 0.85);
   UiHelpDialog helpDialog(params);
   helpDialog.Run();
   ReinitView();
