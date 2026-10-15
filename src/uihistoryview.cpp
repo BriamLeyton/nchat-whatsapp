@@ -84,12 +84,9 @@ void UiHistoryView::Draw()
     m_Model->GetMessageVecLocked(currentChat.first, currentChat.second);
   std::unordered_map<std::string, ChatMessage>& messages =
     m_Model->GetMessagesLocked(currentChat.first, currentChat.second);
-  int messageOffset = std::max(m_Model->GetMessageOffsetLocked(currentChat.first, currentChat.second), 0);
+  const int messageOffset = std::max(m_Model->GetMessageOffsetLocked(currentChat.first, currentChat.second), 0);
+  const bool selectActive = m_Model->GetSelectMessageActiveLocked();
 
-  werase(m_PaddedWin);
-  wbkgd(m_PaddedWin, attributeTextNormal | colorPairTextRecv | ' ');
-
-  m_HistoryShowCount = 0;
 
   static const bool inlineImagesEnabled = UiImage::IsEnabled();
   static const int inlineImageMaxHeight = std::max(1, UiConfig::GetNum("inline_image_max_height"));
@@ -98,450 +95,486 @@ void UiHistoryView::Draw()
   int winBegX = 0;
   getbegyx(m_PaddedWin, winBegY, winBegX);
 
-  bool firstMessage = true;
-  int y = m_PaddedH - 1;
-  for (auto it = std::next(messageVec.begin(), messageOffset); it != messageVec.end(); ++it)
+  // Draws messages bottom-up starting at p_ViewOffset, returns whether the selected message header
+  // was shown. Side effects (mark read, downloads, fetch) only for the final draw.
+  auto drawMessages = [&](int p_ViewOffset, bool p_Final) -> bool
   {
-    bool isSelectedMessage = firstMessage && m_Model->GetSelectMessageActiveLocked();
+    werase(m_PaddedWin);
+    wbkgd(m_PaddedWin, attributeTextNormal | colorPairTextRecv | ' ');
 
-    auto msgIt = messages.find(*it);
-    if (msgIt == messages.end())
+    m_HistoryShowCount = 0;
+    imagePlacements.clear();
+    bool selectedShown = false;
+
+    bool firstMessage = true;
+    int y = m_PaddedH - 1;
+    for (auto it = std::next(messageVec.begin(), p_ViewOffset); it != messageVec.end(); ++it)
     {
-      LOG_WARNING("message %s missing", it->c_str());
-      continue;
-    }
+      const int index = (int)std::distance(messageVec.begin(), it);
+      bool isSelectedMessage = selectActive && (index == messageOffset);
 
-    ChatMessage& msg = msgIt->second;
-
-    int attributeText = isSelectedMessage ? attributeTextSelected : attributeTextNormal;
-    int colorPairText = [&]()
-    {
-      if (msg.isOutgoing) return colorPairTextSent;
-
-      if (msg.senderId == currentChat.second) return colorPairTextRecv;
-
-      static bool isUserColor = UiColorConfig::IsUserColor("history_text_recv_group_color");
-      if (!isUserColor)
+      auto msgIt = messages.find(*it);
+      if (msgIt == messages.end())
       {
-        static int colorPairGroup = UiColorConfig::GetColorPair("history_text_recv_group_color");
-        return colorPairGroup;
+        LOG_WARNING("message %s missing", it->c_str());
+        continue;
       }
 
-      int colorPairGroup = UiColorConfig::GetUserColorPair("history_text_recv_group_color",
-                                                           msg.senderId);
-      return colorPairGroup;
-    }();
+      ChatMessage& msg = msgIt->second;
 
-    std::vector<std::wstring> wlines;
-    if (!msg.text.empty())
-    {
-      std::string text = msg.text;
-      StrUtil::SanitizeMessageStr(text);
+      int attributeText = isSelectedMessage ? attributeTextSelected : attributeTextNormal;
+      int colorPairText = [&]()
+      {
+        if (msg.isOutgoing) return colorPairTextSent;
+
+        if (msg.senderId == currentChat.second) return colorPairTextRecv;
+
+        static bool isUserColor = UiColorConfig::IsUserColor("history_text_recv_group_color");
+        if (!isUserColor)
+        {
+          static int colorPairGroup = UiColorConfig::GetColorPair("history_text_recv_group_color");
+          return colorPairGroup;
+        }
+
+        int colorPairGroup = UiColorConfig::GetUserColorPair("history_text_recv_group_color",
+                                                             msg.senderId);
+        return colorPairGroup;
+      }();
+
+      std::vector<std::wstring> wlines;
+      if (!msg.text.empty())
+      {
+        std::string text = msg.text;
+        StrUtil::SanitizeMessageStr(text);
+        if (!emojiEnabled)
+        {
+          text = StrUtil::Textize(text);
+        }
+
+        wlines = StrUtil::WordWrap(StrUtil::ToWString(text), m_PaddedW, false, false, false, 2);
+      }
+
+      // Quoted message
+      if (!msg.quotedId.empty())
+      {
+        std::string quotedText;
+        auto quotedIt = messages.find(msg.quotedId);
+        if (quotedIt != messages.end())
+        {
+          if (!quotedIt->second.text.empty())
+          {
+            quotedText = StrUtil::Split(quotedIt->second.text, '\n').at(0);
+            if (!emojiEnabled)
+            {
+              quotedText = StrUtil::Textize(quotedText);
+            }
+          }
+          else if (!quotedIt->second.fileInfo.empty())
+          {
+            FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(quotedIt->second.fileInfo);
+            quotedText = FileUtil::BaseName(fileInfo.filePath);
+          }
+        }
+        else if (p_Final)
+        {
+          m_Model->FetchCachedMessageLocked(currentChat.first, currentChat.second, msg.quotedId);
+          quotedText = "";
+        }
+
+        int maxQuoteLen = m_PaddedW - 3;
+        std::wstring quote = quoteIndicator + StrUtil::ToWString(quotedText);
+        if (StrUtil::WStringWidth(quote) > maxQuoteLen)
+        {
+          quote = StrUtil::TrimPadWString(quote, maxQuoteLen) + L"...";
+        }
+
+        wlines.insert(wlines.begin(), quote);
+      }
+
+      // File attachment
+      int imageLineIndex = -1; // index in wlines of first inline image row
+      UiImageInfo imageInfo;
+      if (!msg.fileInfo.empty())
+      {
+        FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(msg.fileInfo);
+        const bool isInlineImage = inlineImagesEnabled && UiImage::IsImageFile(fileInfo.filePath);
+
+        // special case handling selection-triggered download, and handling cache's old setting
+        static const bool isAttachmentPrefetchAll =
+          (AppConfig::GetNum("attachment_prefetch") == AttachmentPrefetchAll);
+        static const bool isAttachmentPrefetchSelected =
+          (AppConfig::GetNum("attachment_prefetch") == AttachmentPrefetchSelected);
+        if (p_Final && (isAttachmentPrefetchAll || (isSelectedMessage && isAttachmentPrefetchSelected) || isInlineImage))
+        {
+          if (!UiModel::IsAttachmentDownloaded(fileInfo) && UiModel::IsAttachmentDownloadable(fileInfo))
+          {
+            m_Model->DownloadAttachmentLocked(currentChat.first, currentChat.second, *it,
+                                              fileInfo.fileId, DownloadFileActionNone);
+            fileInfo = ProtocolUtil::FileInfoFromHex(msg.fileInfo);
+          }
+        }
+
+        std::string fileName = FileUtil::BaseName(fileInfo.filePath);
+        std::string fileStatus;
+        if (fileInfo.fileStatus == FileStatusNone)
+        {
+          // should not happen
+          static const std::string statusNone = " -";
+          fileStatus = statusNone;
+        }
+        else if (fileInfo.fileStatus == FileStatusNotDownloaded)
+        {
+          static const std::string statusNotDownloaded = " " + UiConfig::GetStr("downloadable_indicator");
+          fileStatus = statusNotDownloaded;
+        }
+        else if (fileInfo.fileStatus == FileStatusDownloaded)
+        {
+          static const std::string statusDownloaded = "";
+          fileStatus = statusDownloaded;
+        }
+        else if (fileInfo.fileStatus == FileStatusDownloading)
+        {
+          static const std::string statusDownloading = " " + UiConfig::GetStr("syncing_indicator");
+          fileStatus = statusDownloading;
+        }
+        else if (fileInfo.fileStatus == FileStatusDownloadFailed)
+        {
+          static const std::string statusDownloadFailed = " " + UiConfig::GetStr("failed_indicator");
+          fileStatus = statusDownloadFailed;
+        }
+
+        std::wstring fileStr = attachmentIndicator + StrUtil::ToWString(fileName + fileStatus);
+        wlines.insert(wlines.begin(), fileStr);
+
+        // Inline image rows reserved below attachment line, image placed after refresh
+        if (isInlineImage && (fileInfo.fileStatus == FileStatusDownloaded) &&
+            UiImage::Prepare(fileInfo.filePath, m_PaddedW, inlineImageMaxHeight, imageInfo))
+        {
+          imageLineIndex = 1;
+          wlines.insert(std::next(wlines.begin(), imageLineIndex), imageInfo.rows, std::wstring());
+        }
+      }
+
+      // Reactions
+      int reactionLines = 0;
+      static bool reactionsEnabled = UiConfig::GetBool("reactions_enabled");
+      if (reactionsEnabled)
+      {
+        std::string selfEmoji;
+        auto sit = msg.reactions.senderEmojis.find(s_ReactionsSelfId);
+        if (sit != msg.reactions.senderEmojis.end())
+        {
+          selfEmoji = sit->second;
+        }
+
+        // Allow also if we have self emoji, even if not yet consolidated into count
+        if (!msg.reactions.emojiCounts.empty() || !selfEmoji.empty())
+        {
+          bool foundSelf = false;
+          std::string reactionsText;
+          std::multimap<float, std::string> emojiCountsSorted;
+          for (const auto& emojiCount : msg.reactions.emojiCounts)
+          {
+            float count = emojiCount.second;
+            if (emojiCount.first == selfEmoji)
+            {
+              count += 0.1; // for equal count, prioritize own selected reaction
+              foundSelf = true;
+            }
+
+            emojiCountsSorted.insert(std::make_pair(count, emojiCount.first));
+          }
+
+          if (!foundSelf && !selfEmoji.empty())
+          {
+            LOG_DEBUG("insert missing reaction for self");
+            emojiCountsSorted.insert(std::make_pair(1.1, selfEmoji));
+          }
+
+          bool firstReaction = true;
+          for (auto emojiCount = emojiCountsSorted.rbegin(); emojiCount != emojiCountsSorted.rend(); ++emojiCount)
+          {
+            reactionsText += (firstReaction ? " " : "  ");
+            if (emojiCount->second == selfEmoji)
+            {
+              // Highlight own reaction emoji
+              reactionsText += "" + emojiCount->second + "*";
+            }
+            else
+            {
+              reactionsText += emojiCount->second;
+            }
+
+            if (emojiCount->first > 1.5)
+            {
+              reactionsText += " " + FileUtil::GetSuffixedCount(static_cast<ssize_t>(emojiCount->first));
+            }
+
+            firstReaction = false;
+          }
+
+          if (!reactionsText.empty())
+          {
+            if (!emojiEnabled)
+            {
+              reactionsText = StrUtil::Textize(reactionsText);
+            }
+
+            const int maxReactionsLen = m_PaddedW - 4;
+            std::wstring reactions = StrUtil::ToWString(reactionsText);
+            if (StrUtil::WStringWidth(reactions) > maxReactionsLen)
+            {
+              reactions = StrUtil::TrimPadWString(reactions, maxReactionsLen) + L"... ";
+            }
+            else
+            {
+              reactions += L" ";
+            }
+
+            wlines.insert(wlines.end(), reactions);
+            reactionLines = 1;
+          }
+        }
+      }
+
+      const int maxMessageLines = (m_PaddedH - 1);
+      if (firstMessage && ((int)wlines.size() > maxMessageLines))
+      {
+        // drop inline image if it does not fit, keeping the attachment line
+        if ((imageLineIndex >= 0) && ((imageLineIndex + imageInfo.rows) > (maxMessageLines - 1)))
+        {
+          wlines.erase(std::next(wlines.begin(), imageLineIndex),
+                       std::next(wlines.begin(), imageLineIndex + imageInfo.rows));
+          imageLineIndex = -1;
+        }
+
+        wlines.resize(std::max(maxMessageLines - 1, 0));
+        wlines.push_back(L"[...]");
+        reactionLines = 0;
+      }
+
+      int imageTopY = -1;
+      int imageVisibleRows = 0;
+      for (auto wline = wlines.rbegin(); wline != wlines.rend(); ++wline)
+      {
+        const int lineIndex = (int)wlines.size() - 1 - (int)std::distance(wlines.rbegin(), wline);
+        if ((imageLineIndex >= 0) && (lineIndex >= imageLineIndex) &&
+            (lineIndex < (imageLineIndex + imageInfo.rows)))
+        {
+          imageTopY = y;
+          ++imageVisibleRows;
+        }
+
+        bool isAttachment = (wline->rfind(attachmentIndicator, 0) == 0);
+        bool isQuote = (wline->rfind(quoteIndicator, 0) == 0);
+        bool isReaction = (reactionLines == 1) && (std::distance(wline, wlines.rbegin()) == 0);
+
+        if (isAttachment)
+        {
+          wattron(m_PaddedWin, attributeText | colorPairTextAttachment);
+        }
+        else if (isQuote)
+        {
+          wattron(m_PaddedWin, attributeText | colorPairTextQuoted);
+        }
+        else if (isReaction)
+        {
+          wattron(m_PaddedWin, attributeTextNormal | colorPairTextReaction);
+        }
+        else
+        {
+          wattron(m_PaddedWin, attributeText | colorPairText);
+        }
+
+        const std::wstring wdisp = isReaction ? *wline : StrUtil::TrimPadWString(*wline, m_PaddedW);
+        mvwaddnwstr(m_PaddedWin, y, 0, wdisp.c_str(), std::min((int)wdisp.size(), m_PaddedW));
+
+        if (isAttachment)
+        {
+          wattroff(m_PaddedWin, attributeText | colorPairTextAttachment);
+        }
+        else if (isQuote)
+        {
+          wattroff(m_PaddedWin, attributeText | colorPairTextQuoted);
+        }
+        else if (isReaction)
+        {
+          wattroff(m_PaddedWin, attributeTextNormal | colorPairTextReaction);
+        }
+        else
+        {
+          wattroff(m_PaddedWin, attributeText | colorPairText);
+        }
+
+        if (--y < 0) break;
+      }
+
+      if (imageVisibleRows > 0)
+      {
+        UiImagePlacement placement;
+        placement.info = imageInfo;
+        placement.screenY = winBegY + imageTopY;
+        placement.screenX = winBegX;
+        placement.skipRows = imageInfo.rows - imageVisibleRows;
+        placement.visibleRows = imageVisibleRows;
+        imagePlacements.push_back(placement);
+      }
+
+      if (y < 0) break;
+
+      int attributeName = isSelectedMessage ? attributeNameSelected : attributeNameNormal;
+      int colorPairName = [&]()
+      {
+        if (msg.isOutgoing) return colorPairNameSent;
+
+        if (msg.senderId == currentChat.second) return colorPairNameRecv;
+
+        static bool isUserColor = UiColorConfig::IsUserColor("history_name_recv_group_color");
+        if (!isUserColor)
+        {
+          static int colorPairGroup = UiColorConfig::GetColorPair("history_name_recv_group_color");
+          return colorPairGroup;
+        }
+
+        int colorPairGroup = UiColorConfig::GetUserColorPair("history_name_recv_group_color",
+                                                             msg.senderId);
+        return colorPairGroup;
+      }();
+
+      std::string name = m_Model->GetContactNameLocked(currentChat.first, msg.senderId);
       if (!emojiEnabled)
       {
-        text = StrUtil::Textize(text);
+        name = StrUtil::Textize(name);
       }
 
-      wlines = StrUtil::WordWrap(StrUtil::ToWString(text), m_PaddedW, false, false, false, 2);
-    }
-
-    // Quoted message
-    if (!msg.quotedId.empty())
-    {
-      std::string quotedText;
-      auto quotedIt = messages.find(msg.quotedId);
-      if (quotedIt != messages.end())
+      std::wstring wsender = StrUtil::ToWString(name);
+      std::wstring wtime;
+      if (developerMode)
       {
-        if (!quotedIt->second.text.empty())
-        {
-          quotedText = StrUtil::Split(quotedIt->second.text, '\n').at(0);
-          if (!emojiEnabled)
-          {
-            quotedText = StrUtil::Textize(quotedText);
-          }
-        }
-        else if (!quotedIt->second.fileInfo.empty())
-        {
-          FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(quotedIt->second.fileInfo);
-          quotedText = FileUtil::BaseName(fileInfo.filePath);
-        }
+        wtime = L" (" + StrUtil::ToWString(std::to_string(msg.timeSent)) + L")";
       }
       else
       {
-        m_Model->FetchCachedMessageLocked(currentChat.first, currentChat.second, msg.quotedId);
-        quotedText = "";
-      }
-
-      int maxQuoteLen = m_PaddedW - 3;
-      std::wstring quote = quoteIndicator + StrUtil::ToWString(quotedText);
-      if (StrUtil::WStringWidth(quote) > maxQuoteLen)
-      {
-        quote = StrUtil::TrimPadWString(quote, maxQuoteLen) + L"...";
-      }
-
-      wlines.insert(wlines.begin(), quote);
-    }
-
-    // File attachment
-    int imageLineIndex = -1; // index in wlines of first inline image row
-    UiImageInfo imageInfo;
-    if (!msg.fileInfo.empty())
-    {
-      FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(msg.fileInfo);
-      const bool isInlineImage = inlineImagesEnabled && UiImage::IsImageFile(fileInfo.filePath);
-
-      // special case handling selection-triggered download, and handling cache's old setting
-      static const bool isAttachmentPrefetchAll =
-        (AppConfig::GetNum("attachment_prefetch") == AttachmentPrefetchAll);
-      static const bool isAttachmentPrefetchSelected =
-        (AppConfig::GetNum("attachment_prefetch") == AttachmentPrefetchSelected);
-      if (isAttachmentPrefetchAll || (isSelectedMessage && isAttachmentPrefetchSelected) || isInlineImage)
-      {
-        if (!UiModel::IsAttachmentDownloaded(fileInfo) && UiModel::IsAttachmentDownloadable(fileInfo))
+        if (msg.timeSent != std::numeric_limits<int64_t>::max())
         {
-          m_Model->DownloadAttachmentLocked(currentChat.first, currentChat.second, *it,
-                                            fileInfo.fileId, DownloadFileActionNone);
-          fileInfo = ProtocolUtil::FileInfoFromHex(msg.fileInfo);
+          wtime = L" (" + StrUtil::ToWString(TimeUtil::GetTimeString(msg.timeSent, false /* p_IsExport */)) + L")";
         }
       }
 
-      std::string fileName = FileUtil::BaseName(fileInfo.filePath);
-      std::string fileStatus;
-      if (fileInfo.fileStatus == FileStatusNone)
+      if (p_Final)
       {
-        // should not happen
-        static const std::string statusNone = " -";
-        fileStatus = statusNone;
-      }
-      else if (fileInfo.fileStatus == FileStatusNotDownloaded)
-      {
-        static const std::string statusNotDownloaded = " " + UiConfig::GetStr("downloadable_indicator");
-        fileStatus = statusNotDownloaded;
-      }
-      else if (fileInfo.fileStatus == FileStatusDownloaded)
-      {
-        static const std::string statusDownloaded = "";
-        fileStatus = statusDownloaded;
-      }
-      else if (fileInfo.fileStatus == FileStatusDownloading)
-      {
-        static const std::string statusDownloading = " " + UiConfig::GetStr("syncing_indicator");
-        fileStatus = statusDownloading;
-      }
-      else if (fileInfo.fileStatus == FileStatusDownloadFailed)
-      {
-        static const std::string statusDownloadFailed = " " + UiConfig::GetStr("failed_indicator");
-        fileStatus = statusDownloadFailed;
+        m_Model->MarkReadLocked(currentChat.first, currentChat.second, *it, (!msg.isOutgoing && !msg.isRead));
       }
 
-      std::wstring fileStr = attachmentIndicator + StrUtil::ToWString(fileName + fileStatus);
-      wlines.insert(wlines.begin(), fileStr);
+      static const std::string editedIndicator = " " + UiConfig::GetStr("edited_indicator");
+      static const std::string pinnedIndicator = " " + UiConfig::GetStr("pinned_indicator");
+      std::wstring wedited = StrUtil::ToWString(msg.isEdited ? editedIndicator : "");
+      std::wstring wpinned = StrUtil::ToWString(msg.isPinned ? pinnedIndicator : "");
+      std::wstring wheader = wsender + wtime;
+      std::wstring wtrailer = wedited + wpinned;
 
-      // Inline image rows reserved below attachment line, image placed after refresh
-      if (isInlineImage && (fileInfo.fileStatus == FileStatusDownloaded) &&
-          UiImage::Prepare(fileInfo.filePath, m_PaddedW, inlineImageMaxHeight, imageInfo))
+      if (developerMode)
       {
-        imageLineIndex = 1;
-        wlines.insert(std::next(wlines.begin(), imageLineIndex), imageInfo.rows, std::wstring());
-      }
-    }
-
-    // Reactions
-    int reactionLines = 0;
-    static bool reactionsEnabled = UiConfig::GetBool("reactions_enabled");
-    if (reactionsEnabled)
-    {
-      std::string selfEmoji;
-      auto sit = msg.reactions.senderEmojis.find(s_ReactionsSelfId);
-      if (sit != msg.reactions.senderEmojis.end())
-      {
-        selfEmoji = sit->second;
+        wtrailer = wtrailer +
+          L" msg " + StrUtil::ToWString(msg.id) +
+          L" user " + StrUtil::ToWString(msg.senderId);
       }
 
-      // Allow also if we have self emoji, even if not yet consolidated into count
-      if (!msg.reactions.emojiCounts.empty() || !selfEmoji.empty())
+      // Delivery status of outgoing (not pending) messages, inferred for messages cached before tracking
+      std::wstring wreceipt;
+      int colorPairReceipt = colorPairName;
+      if (msg.isOutgoing && (msg.timeSent != std::numeric_limits<int64_t>::max()))
       {
-        bool foundSelf = false;
-        std::string reactionsText;
-        std::multimap<float, std::string> emojiCountsSorted;
-        for (const auto& emojiCount : msg.reactions.emojiCounts)
+        static const std::wstring sentIndicator =
+          L" " + StrUtil::ToWString(UiConfig::GetStr("receipt_sent_indicator"));
+        static const std::wstring deliveredIndicator =
+          L" " + StrUtil::ToWString(UiConfig::GetStr("receipt_delivered_indicator"));
+        static const std::wstring readIndicator =
+          L" " + StrUtil::ToWString(UiConfig::GetStr("receipt_read_indicator"));
+        static const int colorPairReceiptSent = UiColorConfig::GetColorPair("history_receipt_sent_color");
+        static const int colorPairReceiptDelivered = UiColorConfig::GetColorPair("history_receipt_delivered_color");
+        static const int colorPairReceiptRead = UiColorConfig::GetColorPair("history_receipt_read_color");
+
+        int deliveryStatus = msg.deliveryStatus;
+        if (deliveryStatus == DeliveryStatusUnknown)
         {
-          float count = emojiCount.second;
-          if (emojiCount.first == selfEmoji)
-          {
-            count += 0.1; // for equal count, prioritize own selected reaction
-            foundSelf = true;
-          }
-
-          emojiCountsSorted.insert(std::make_pair(count, emojiCount.first));
+          deliveryStatus = msg.isRead ? DeliveryStatusRead : DeliveryStatusDelivered;
         }
 
-        if (!foundSelf && !selfEmoji.empty())
+        if (deliveryStatus >= DeliveryStatusRead)
         {
-          LOG_DEBUG("insert missing reaction for self");
-          emojiCountsSorted.insert(std::make_pair(1.1, selfEmoji));
+          wreceipt = readIndicator;
+          colorPairReceipt = colorPairReceiptRead;
         }
-
-        bool firstReaction = true;
-        for (auto emojiCount = emojiCountsSorted.rbegin(); emojiCount != emojiCountsSorted.rend(); ++emojiCount)
+        else if (deliveryStatus == DeliveryStatusDelivered)
         {
-          reactionsText += (firstReaction ? " " : "  ");
-          if (emojiCount->second == selfEmoji)
-          {
-            // Highlight own reaction emoji
-            reactionsText += "" + emojiCount->second + "*";
-          }
-          else
-          {
-            reactionsText += emojiCount->second;
-          }
-
-          if (emojiCount->first > 1.5)
-          {
-            reactionsText += " " + FileUtil::GetSuffixedCount(static_cast<ssize_t>(emojiCount->first));
-          }
-
-          firstReaction = false;
+          wreceipt = deliveredIndicator;
+          colorPairReceipt = colorPairReceiptDelivered;
         }
-
-        if (!reactionsText.empty())
+        else
         {
-          if (!emojiEnabled)
-          {
-            reactionsText = StrUtil::Textize(reactionsText);
-          }
-
-          const int maxReactionsLen = m_PaddedW - 4;
-          std::wstring reactions = StrUtil::ToWString(reactionsText);
-          if (StrUtil::WStringWidth(reactions) > maxReactionsLen)
-          {
-            reactions = StrUtil::TrimPadWString(reactions, maxReactionsLen) + L"... ";
-          }
-          else
-          {
-            reactions += L" ";
-          }
-
-          wlines.insert(wlines.end(), reactions);
-          reactionLines = 1;
+          wreceipt = sentIndicator;
+          colorPairReceipt = colorPairReceiptSent;
         }
       }
-    }
 
-    const int maxMessageLines = (m_PaddedH - 1);
-    if (firstMessage && ((int)wlines.size() > maxMessageLines))
-    {
-      // drop inline image if it does not fit, keeping the attachment line
-      if ((imageLineIndex >= 0) && ((imageLineIndex + imageInfo.rows) > (maxMessageLines - 1)))
+      // Header segments: sender and time, delivery status (own color), and trailing indicators padded
+      // to full width. Each segment is truncated to the remaining width.
+      int x = 0;
+      auto drawSegment = [&](const std::wstring& p_Segment, int p_ColorPair, bool p_Pad)
       {
-        wlines.erase(std::next(wlines.begin(), imageLineIndex),
-                     std::next(wlines.begin(), imageLineIndex + imageInfo.rows));
-        imageLineIndex = -1;
-      }
+        const int remainW = m_PaddedW - x;
+        if (remainW <= 0) return;
 
-      wlines.resize(maxMessageLines - 1);
-      wlines.push_back(L"[...]");
-      reactionLines = 0;
-    }
+        std::wstring wdisp = p_Segment;
+        if (p_Pad || (StrUtil::WStringWidth(wdisp) > remainW))
+        {
+          wdisp = StrUtil::TrimPadWString(wdisp, remainW);
+        }
 
-    int imageTopY = -1;
-    int imageVisibleRows = 0;
-    for (auto wline = wlines.rbegin(); wline != wlines.rend(); ++wline)
-    {
-      const int lineIndex = (int)wlines.size() - 1 - (int)std::distance(wlines.rbegin(), wline);
-      if ((imageLineIndex >= 0) && (lineIndex >= imageLineIndex) &&
-          (lineIndex < (imageLineIndex + imageInfo.rows)))
+        wattron(m_PaddedWin, attributeName | p_ColorPair);
+        mvwaddnwstr(m_PaddedWin, y, x, wdisp.c_str(), std::min((int)wdisp.size(), remainW));
+        wattroff(m_PaddedWin, attributeName | p_ColorPair);
+        x += StrUtil::WStringWidth(wdisp);
+      };
+
+      drawSegment(wheader, colorPairName, false);
+      if (!wreceipt.empty())
       {
-        imageTopY = y;
-        ++imageVisibleRows;
+        drawSegment(wreceipt, colorPairReceipt, false);
       }
 
-      bool isAttachment = (wline->rfind(attachmentIndicator, 0) == 0);
-      bool isQuote = (wline->rfind(quoteIndicator, 0) == 0);
-      bool isReaction = (reactionLines == 1) && (std::distance(wline, wlines.rbegin()) == 0);
+      drawSegment(wtrailer, colorPairName, true);
 
-      if (isAttachment)
-      {
-        wattron(m_PaddedWin, attributeText | colorPairTextAttachment);
-      }
-      else if (isQuote)
-      {
-        wattron(m_PaddedWin, attributeText | colorPairTextQuoted);
-      }
-      else if (isReaction)
-      {
-        wattron(m_PaddedWin, attributeTextNormal | colorPairTextReaction);
-      }
-      else
-      {
-        wattron(m_PaddedWin, attributeText | colorPairText);
-      }
-
-      const std::wstring wdisp = isReaction ? *wline : StrUtil::TrimPadWString(*wline, m_PaddedW);
-      mvwaddnwstr(m_PaddedWin, y, 0, wdisp.c_str(), std::min((int)wdisp.size(), m_PaddedW));
-
-      if (isAttachment)
-      {
-        wattroff(m_PaddedWin, attributeText | colorPairTextAttachment);
-      }
-      else if (isQuote)
-      {
-        wattroff(m_PaddedWin, attributeText | colorPairTextQuoted);
-      }
-      else if (isReaction)
-      {
-        wattroff(m_PaddedWin, attributeTextNormal | colorPairTextReaction);
-      }
-      else
-      {
-        wattroff(m_PaddedWin, attributeText | colorPairText);
-      }
+      ++m_HistoryShowCount;
+      selectedShown = selectedShown || isSelectedMessage;
 
       if (--y < 0) break;
+
+      if (--y < 0) break;
+
+      firstMessage = false;
     }
 
-    if (imageVisibleRows > 0)
+    return selectedShown;
+  };
+
+  // With selection active the view stays put, and only scrolls the minimum needed to fully show
+  // the selected message.
+  int viewOffset = messageOffset;
+  if (selectActive)
+  {
+    viewOffset = std::max(std::min(m_Model->GetHistoryViewOffsetLocked(currentChat.first, currentChat.second),
+                                   messageOffset), 0);
+    while ((viewOffset < messageOffset) && !drawMessages(viewOffset, false /* p_Final */))
     {
-      UiImagePlacement placement;
-      placement.info = imageInfo;
-      placement.screenY = winBegY + imageTopY;
-      placement.screenX = winBegX;
-      placement.skipRows = imageInfo.rows - imageVisibleRows;
-      placement.visibleRows = imageVisibleRows;
-      imagePlacements.push_back(placement);
+      ++viewOffset;
     }
 
-    if (y < 0) break;
-
-    int attributeName = isSelectedMessage ? attributeNameSelected : attributeNameNormal;
-    int colorPairName = [&]()
-    {
-      if (msg.isOutgoing) return colorPairNameSent;
-
-      if (msg.senderId == currentChat.second) return colorPairNameRecv;
-
-      static bool isUserColor = UiColorConfig::IsUserColor("history_name_recv_group_color");
-      if (!isUserColor)
-      {
-        static int colorPairGroup = UiColorConfig::GetColorPair("history_name_recv_group_color");
-        return colorPairGroup;
-      }
-
-      int colorPairGroup = UiColorConfig::GetUserColorPair("history_name_recv_group_color",
-                                                           msg.senderId);
-      return colorPairGroup;
-    }();
-
-    std::string name = m_Model->GetContactNameLocked(currentChat.first, msg.senderId);
-    if (!emojiEnabled)
-    {
-      name = StrUtil::Textize(name);
-    }
-
-    std::wstring wsender = StrUtil::ToWString(name);
-    std::wstring wtime;
-    if (developerMode)
-    {
-      wtime = L" (" + StrUtil::ToWString(std::to_string(msg.timeSent)) + L")";
-    }
-    else
-    {
-      if (msg.timeSent != std::numeric_limits<int64_t>::max())
-      {
-        wtime = L" (" + StrUtil::ToWString(TimeUtil::GetTimeString(msg.timeSent, false /* p_IsExport */)) + L")";
-      }
-    }
-
-    m_Model->MarkReadLocked(currentChat.first, currentChat.second, *it, (!msg.isOutgoing && !msg.isRead));
-
-    static const std::string editedIndicator = " " + UiConfig::GetStr("edited_indicator");
-    static const std::string pinnedIndicator = " " + UiConfig::GetStr("pinned_indicator");
-    std::wstring wedited = StrUtil::ToWString(msg.isEdited ? editedIndicator : "");
-    std::wstring wpinned = StrUtil::ToWString(msg.isPinned ? pinnedIndicator : "");
-    std::wstring wheader = wsender + wtime;
-    std::wstring wtrailer = wedited + wpinned;
-
-    if (developerMode)
-    {
-      wtrailer = wtrailer +
-        L" msg " + StrUtil::ToWString(msg.id) +
-        L" user " + StrUtil::ToWString(msg.senderId);
-    }
-
-    // Delivery status of outgoing (not pending) messages, inferred for messages cached before tracking
-    std::wstring wreceipt;
-    int colorPairReceipt = colorPairName;
-    if (msg.isOutgoing && (msg.timeSent != std::numeric_limits<int64_t>::max()))
-    {
-      static const std::wstring sentIndicator =
-        L" " + StrUtil::ToWString(UiConfig::GetStr("receipt_sent_indicator"));
-      static const std::wstring deliveredIndicator =
-        L" " + StrUtil::ToWString(UiConfig::GetStr("receipt_delivered_indicator"));
-      static const std::wstring readIndicator =
-        L" " + StrUtil::ToWString(UiConfig::GetStr("receipt_read_indicator"));
-      static const int colorPairReceiptSent = UiColorConfig::GetColorPair("history_receipt_sent_color");
-      static const int colorPairReceiptDelivered = UiColorConfig::GetColorPair("history_receipt_delivered_color");
-      static const int colorPairReceiptRead = UiColorConfig::GetColorPair("history_receipt_read_color");
-
-      int deliveryStatus = msg.deliveryStatus;
-      if (deliveryStatus == DeliveryStatusUnknown)
-      {
-        deliveryStatus = msg.isRead ? DeliveryStatusRead : DeliveryStatusDelivered;
-      }
-
-      if (deliveryStatus >= DeliveryStatusRead)
-      {
-        wreceipt = readIndicator;
-        colorPairReceipt = colorPairReceiptRead;
-      }
-      else if (deliveryStatus == DeliveryStatusDelivered)
-      {
-        wreceipt = deliveredIndicator;
-        colorPairReceipt = colorPairReceiptDelivered;
-      }
-      else
-      {
-        wreceipt = sentIndicator;
-        colorPairReceipt = colorPairReceiptSent;
-      }
-    }
-
-    // Header segments: sender and time, delivery status (own color), and trailing indicators padded
-    // to full width. Each segment is truncated to the remaining width.
-    int x = 0;
-    auto drawSegment = [&](const std::wstring& p_Segment, int p_ColorPair, bool p_Pad)
-    {
-      const int remainW = m_PaddedW - x;
-      if (remainW <= 0) return;
-
-      std::wstring wdisp = p_Segment;
-      if (p_Pad || (StrUtil::WStringWidth(wdisp) > remainW))
-      {
-        wdisp = StrUtil::TrimPadWString(wdisp, remainW);
-      }
-
-      wattron(m_PaddedWin, attributeName | p_ColorPair);
-      mvwaddnwstr(m_PaddedWin, y, x, wdisp.c_str(), std::min((int)wdisp.size(), remainW));
-      wattroff(m_PaddedWin, attributeName | p_ColorPair);
-      x += StrUtil::WStringWidth(wdisp);
-    };
-
-    drawSegment(wheader, colorPairName, false);
-    if (!wreceipt.empty())
-    {
-      drawSegment(wreceipt, colorPairReceipt, false);
-    }
-
-    drawSegment(wtrailer, colorPairName, true);
-
-    ++m_HistoryShowCount;
-
-    if (--y < 0) break;
-
-    if (--y < 0) break;
-
-    firstMessage = false;
+    m_Model->SetHistoryViewOffsetLocked(currentChat.first, currentChat.second, viewOffset);
   }
+
+  drawMessages(viewOffset, true /* p_Final */);
 
   wrefresh(m_PaddedWin);
 

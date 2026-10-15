@@ -760,6 +760,12 @@ void UiModel::Impl::OnKeyPrevPage()
   int& messageOffset = m_MessageOffset[profileId][chatId];
   std::stack<int>& messageOffsetStack = m_MessageOffsetStack[profileId][chatId];
 
+  if (GetSelectMessageActive())
+  {
+    // page from the shown messages, not from the selected one
+    messageOffset = m_HistoryViewOffset[profileId][chatId];
+  }
+
   int addOffset = std::min(historyShowCount, std::max(messageCount - messageOffset - 1, 0));
   LOG_TRACE("count %d offset %d addoffset %d", messageCount, messageOffset, addOffset);
   if (addOffset > 0)
@@ -3277,6 +3283,17 @@ int& UiModel::Impl::GetMessageOffset(const std::string& p_ProfileId, const std::
   return m_MessageOffset[p_ProfileId][p_ChatId];
 }
 
+int UiModel::Impl::GetHistoryViewOffset(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  return m_HistoryViewOffset[p_ProfileId][p_ChatId];
+}
+
+void UiModel::Impl::SetHistoryViewOffset(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                         int p_ViewOffset)
+{
+  m_HistoryViewOffset[p_ProfileId][p_ChatId] = p_ViewOffset;
+}
+
 bool UiModel::Impl::GetSelectMessageActive()
 {
   return m_SelectMessageActive;
@@ -3284,6 +3301,14 @@ bool UiModel::Impl::GetSelectMessageActive()
 
 void UiModel::Impl::SetSelectMessageActive(bool p_SelectMessageActive)
 {
+  if (p_SelectMessageActive && !m_SelectMessageActive)
+  {
+    // keep the currently shown messages in place when selection starts
+    const std::string& profileId = m_CurrentChat.first;
+    const std::string& chatId = m_CurrentChat.second;
+    m_HistoryViewOffset[profileId][chatId] = m_MessageOffset[profileId][chatId];
+  }
+
   m_SelectMessageActive = p_SelectMessageActive;
   SetHelpOffset(0);
   UpdateHelp();
@@ -5275,6 +5300,19 @@ int UiModel::GetMessageOffsetLocked(const std::string& p_ProfileId, const std::s
 {
   nc_assert(m_ModelMutex.owns_lock());
   return GetImpl().GetMessageOffset(p_ProfileId, p_ChatId);
+}
+
+int UiModel::GetHistoryViewOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().GetHistoryViewOffset(p_ProfileId, p_ChatId);
+}
+
+void UiModel::SetHistoryViewOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                         int p_ViewOffset)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  GetImpl().SetHistoryViewOffset(p_ProfileId, p_ChatId, p_ViewOffset);
 }
 
 std::unordered_map<std::string, ChatMessage>& UiModel::GetMessagesLocked(const std::string& p_ProfileId,

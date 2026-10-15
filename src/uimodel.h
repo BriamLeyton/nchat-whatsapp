@@ -137,6 +137,8 @@ private:
                                                               const std::string& p_ChatId);
     std::vector<std::string>& GetMessageVec(const std::string& p_ProfileId, const std::string& p_ChatId);
     int& GetMessageOffset(const std::string& p_ProfileId, const std::string& p_ChatId);
+    int GetHistoryViewOffset(const std::string& p_ProfileId, const std::string& p_ChatId);
+    void SetHistoryViewOffset(const std::string& p_ProfileId, const std::string& p_ChatId, int p_ViewOffset);
 
     void SetStatusOnline(const std::string& p_ProfileId, bool p_IsOnline);
     void RequestContacts();
@@ -280,6 +282,7 @@ private:
                        std::unordered_map<std::string, std::unordered_map<std::string, ChatMessage>>> m_Messages;
     std::unordered_map<std::string, std::unordered_map<std::string, int>> m_MessageOffset;
     std::unordered_map<std::string, std::unordered_map<std::string, std::stack<int>>> m_MessageOffsetStack;
+    std::unordered_map<std::string, std::unordered_map<std::string, int>> m_HistoryViewOffset;
     std::unordered_map<std::string,
                        std::unordered_map<std::string, std::unordered_set<std::string>>> m_MsgFromIdsRequested;
     std::unordered_map<std::string, std::unordered_map<std::string, bool>> m_FetchedAllCache;
@@ -383,6 +386,8 @@ public:
   bool GetFileListDialogActiveLocked();
   bool GetMessageDialogActiveLocked();
   int GetMessageOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+  int GetHistoryViewOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+  void SetHistoryViewOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId, int p_ViewOffset);
   std::unordered_map<std::string, ChatMessage>& GetMessagesLocked(const std::string& p_ProfileId,
                                                                   const std::string& p_ChatId);
   std::vector<std::string>& GetMessageVecLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
