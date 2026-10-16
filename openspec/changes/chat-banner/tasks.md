@@ -20,4 +20,4 @@
 ## 4. Verificación
 
 - [x] 4.1 Sandbox sin red: banner de contacto y de grupo con texto, conteo de estados con valores conocidos, Alt-u ida y vuelta, aviso sin estados; sin red no se pide la foto; Ctrl-v sin foto muestra "No profile photo.". Colores de presencia y fotos pasan a 4.2, porque requieren red.
-- [ ] 4.2 En vivo en Ghostty: colores de presencia (typing, online, seen); fotos de contacto y grupo; Ctrl-v abre la foto completa; contacto con foto oculta; reabrir el chat no vuelve a consultar (log); estados nuevos y revisados en el banner.
+- [x] 4.2 En vivo en Ghostty: colores de presencia (typing, online, seen); fotos de contacto y grupo; Ctrl-v abre la foto completa; contacto con foto oculta; reabrir el chat no vuelve a consultar (log); estados nuevos y revisados en el banner.
