@@ -16,4 +16,4 @@
   - [x] `↓` desde el último sale y muestra el final;
   - [x] `PgUp`/`PgDn` igual que antes;
   - [x] mensaje más alto que la vista recortado con `[...]`.
-- [ ] 3.2 En vivo en Ghostty: selección con imágenes inline, saltar al citado, reaccionar y editar sobre el mensaje seleccionado.
+- [x] 3.2 En vivo en Ghostty: selección con imágenes inline, saltar al citado, reaccionar y editar sobre el mensaje seleccionado.
