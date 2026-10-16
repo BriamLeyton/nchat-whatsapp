@@ -506,6 +506,7 @@ This configuration file holds general user interface settings. Default content:
     mark_read_any_chat=0
     mark_read_on_view=1
     mark_read_when_inactive=0
+    media_probe_command=ffprobe -v error -show_entries format=duration -of csv=p=0 '%1' </dev/null 2>/dev/null
     message_edit_command=
     message_open_command=
     muted_indicate_unread=1
@@ -813,6 +814,16 @@ false nchat will only mark the messages read upon `next_page` (page down),
 
 Controls whether nchat marks messages in the current chat as read while the
 terminal is inactive.
+
+### media_probe_command
+
+Specifies a command used to determine the duration in seconds of downloaded
+video and audio attachments lacking it (received before media previews, or
+sent from nchat). `%1` is replaced by the file path. Results are stored in the
+`<id>.meta` sidecar file, so each file is probed once. If the command is empty
+or fails only the file size is shown. Default:
+
+    ffprobe -v error -show_entries format=duration -of csv=p=0 '%1' </dev/null 2>/dev/null
 
 ### message_edit_command
 

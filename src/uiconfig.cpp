@@ -63,6 +63,7 @@ void UiConfig::Init()
     { "mark_read_any_chat", "0" },
     { "mark_read_on_view", "1" },
     { "mark_read_when_inactive", "0" },
+    { "media_probe_command", "ffprobe -v error -show_entries format=duration -of csv=p=0 '%1' </dev/null 2>/dev/null" },
     { "message_edit_command", "" },
     { "message_open_command", "" },
     { "muted_indicate_unread", "1" },

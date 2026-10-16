@@ -263,6 +263,14 @@ void UiHistoryView::Draw()
           fileStatus = statusDownloadFailed;
         }
 
+        // Downloaded video / audio without known duration (old or sent from nchat), probe locally
+        const bool isAudioFile = UiImage::IsAudioFile(fileInfo.filePath);
+        if (p_Final && (meta != nullptr) && (meta->seconds == 0) && (isVideoFile || isAudioFile) &&
+            (fileInfo.fileStatus == FileStatusDownloaded) && FileUtil::Exists(fileInfo.filePath))
+        {
+          MediaInfo::RequestProbe(currentChat.first, msg.id, fileInfo.filePath);
+        }
+
         // Video / audio duration and size, ex: " ▶ 1:15 · 4.2 MB" or " 🎤 0:42"
         std::string mediaStr;
         if ((meta != nullptr) && !isImageFile)

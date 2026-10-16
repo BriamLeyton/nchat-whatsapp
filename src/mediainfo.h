@@ -38,12 +38,17 @@ public:
   // a missing poster is generated in background using video_thumbnail_command (once per session).
   static std::string GetPosterPath(const std::string& p_VideoPath, bool p_Generate);
 
-  // Returns true (once) if a poster frame was generated since last call.
+  // Request duration and size of a downloaded video / audio without known duration to be determined
+  // in background (media_probe_command and file size), stored in the sidecar meta file (once per session).
+  static void RequestProbe(const std::string& p_ProfileId, const std::string& p_MsgId, const std::string& p_FilePath);
+
+  // Returns true (once) if a poster frame was generated or a probe completed since last call. Must be
+  // called from the ui thread, as it applies probe results to cached metadata.
   static bool TakePosterUpdated();
 
   static std::string FormatDuration(uint32_t p_Seconds); // ex: 1:15
   static std::string FormatSize(uint64_t p_Bytes); // ex: 4.2 MB
 
 private:
-  static void PosterWorker();
+  static void Worker();
 };

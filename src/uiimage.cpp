@@ -196,6 +196,16 @@ bool UiImage::IsVideoFile(const std::string& p_Path)
          (ext == "3gp") || (ext == "mkv");
 }
 
+bool UiImage::IsAudioFile(const std::string& p_Path)
+{
+  size_t dotPos = p_Path.find_last_of('.');
+  if (dotPos == std::string::npos) return false;
+
+  std::string ext = StrUtil::ToLower(p_Path.substr(dotPos + 1));
+  return (ext == "oga") || (ext == "ogg") || (ext == "opus") || (ext == "mp3") || (ext == "m4a") ||
+         (ext == "aac") || (ext == "wav") || (ext == "amr");
+}
+
 void UiImage::GetCellSize(int& p_CellW, int& p_CellH)
 {
   struct winsize ws;
