@@ -14,4 +14,4 @@
   - con la línea base movida atrás, los estados posteriores salen con `●` y la fila Status también;
   - recorrer con el cursor quita `●` y, al final, el de la fila Status, sin enviar visto (log);
   - reiniciar conserva los revisados.
-- [ ] 2.2 En vivo en Ghostty: un estado nuevo sale con `●` en el estado y en la fila Status, y recorrerlo los quita.
+- [x] 2.2 En vivo en Ghostty: un estado nuevo sale con `●` en el estado y en la fila Status, y recorrerlo los quita.
