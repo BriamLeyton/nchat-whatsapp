@@ -7,4 +7,4 @@
 ## 2. Verificación
 
 - [x] 2.1 Prueba aislada de `Prepare`: miniatura de 90×160 con y sin agrandar da distintas filas, y la imagen grande no cambia.
-- [ ] 2.2 En vivo en Ghostty, tras cambiar `inline_image_max_height=12` en `~/.config/nchat/ui.conf` con nchat cerrado: video no descargado del mismo alto que una imagen.
+- [x] 2.2 En vivo en Ghostty, tras cambiar `inline_image_max_height=12` en `~/.config/nchat/ui.conf` con nchat cerrado: video no descargado del mismo alto que una imagen.
