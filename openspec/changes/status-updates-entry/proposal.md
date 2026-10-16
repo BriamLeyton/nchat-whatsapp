@@ -5,7 +5,7 @@ Los estados de WhatsApp ya llegan a nchat como el chat `status@broadcast` ("Stat
 ## What Changes
 
 - Los estados se muestran como una fila fija al inicio de la lista, antes de la sección "Pinned" y fuera de todas las secciones.
-- La fila tiene un estilo llamativo propio (por defecto, texto oscuro sobre el verde de WhatsApp `#25d366`, en negrita), distinto de los títulos de sección.
+- La fila tiene un estilo propio (por defecto, texto verde `#6fcfa8` sobre un verde oscuro discreto `#173029`, en negrita), distinto de los títulos de sección.
 - La fila es seleccionable como un chat: con `Tab`/`Shift-Tab`, ir a chat o con la flecha en la lista. Al seleccionarla, el historial muestra los estados como hoy.
 - La fila muestra `*` cuando hay estados no vistos, igual que un chat no leído.
 - La fila no se cuenta en ninguna sección y nunca se oculta al colapsar "Others" o "Archived".

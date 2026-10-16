@@ -24,11 +24,11 @@ Cuando existe el chat de estados (`status@broadcast`) y `status_broadcast` es di
 - **THEN** no se muestra la fila de estados
 
 ### Requirement: Estilo propio
-La fila de estados SHALL dibujarse con el nombre de `list_status_name` y con el color y el atributo de `list_color_status` y `list_attr_status`, distintos de los títulos de sección. Por defecto MUST usar texto `#111b21` sobre fondo `#25d366` en negrita. Cuando está seleccionada MUST usar además el atributo de selección de la lista.
+La fila de estados SHALL dibujarse con el nombre de `list_status_name` y con el color y el atributo de `list_color_status` y `list_attr_status`, distintos de los títulos de sección. Por defecto MUST usar texto `#6fcfa8` sobre fondo `#173029` en negrita. Cuando está seleccionada MUST usar además el atributo de selección de la lista.
 
 #### Scenario: Fila sin seleccionar
 - **WHEN** la fila de estados no está seleccionada
-- **THEN** se ve con fondo verde y texto oscuro en negrita, ocupando todo el ancho de la lista
+- **THEN** se ve con fondo verde oscuro y texto verde en negrita, ocupando todo el ancho de la lista
 
 #### Scenario: Fila seleccionada
 - **WHEN** la fila de estados está seleccionada

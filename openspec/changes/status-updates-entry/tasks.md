@@ -6,7 +6,7 @@
 
 ## 2. Vista y configuración
 
-- [x] 2.1 Opciones `list_status_name=◉ Status`, `list_color_status_fg=0x111b21`, `list_color_status_bg=0x25d366`, `list_attr_status=bold`.
+- [x] 2.1 Opciones `list_status_name=◉ Status`, `list_color_status_fg=0x6fcfa8`, `list_color_status_bg=0x173029`, `list_attr_status=bold`.
 - [x] 2.2 `UiListView::Draw`: títulos solo si hay Pinned o Archived. Fila de Status sin título, con su nombre, estilo, selección y `*`.
 - [x] 2.3 README: documentar las opciones nuevas.
 

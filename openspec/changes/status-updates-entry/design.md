@@ -32,7 +32,7 @@ Se agrega `ChatSectionStatus` al enum como valor 0, y las demás suben uno: Stat
 - **Nombre:** `list_status_name` (por defecto `◉ Status`), en lugar del nombre del contacto.
 - **Estilo:** `list_attr_status | list_color_status` en toda la fila. Si está seleccionada se suma `list_attr_selected` (por defecto `reverse`).
 - **No leídos:** el indicador `*` usa el mismo color de estilo de la fila, para no romper el fondo.
-- **Colores por defecto:** `list_color_status_fg=0x111b21`, `list_color_status_bg=0x25d366`, `list_attr_status=bold`. En terminales sin colores hex se aproximan a la paleta 256, como en los ticks.
+- **Colores por defecto:** `list_color_status_fg=0x6fcfa8`, `list_color_status_bg=0x173029` (verde oscuro discreto sobre fondos oscuros; el verde de WhatsApp `#25d366` resultó demasiado llamativo), `list_attr_status=bold`. En terminales sin colores hex se aproximan a la paleta 256, como en los ticks.
 
 ### 4. Fijar y archivar
 `OnKeyPinChat` y `OnKeyArchiveChat` salen sin hacer nada si el chat actual es `status@broadcast`.
