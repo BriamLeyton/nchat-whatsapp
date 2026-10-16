@@ -14,10 +14,10 @@
 - Las imágenes descargadas no se agrandan. Un sticker o una imagen chica se ve en su tamaño real.
 
 ### 2. Tamaños
-- `inline_image_max_height`: default 14.
-- Miniatura de vista previa de link: `min(6, inline_image_max_height)`.
+- `inline_image_max_height`: default 12.
+- Miniatura de vista previa de link: el mismo `inline_image_max_height`.
 
 ## Risks / Trade-offs
 
-- **Borroso:** una miniatura de 90×160 agrandada a 14 filas se ve borrosa. Es el mismo efecto que la app oficial antes de descargar, y una vez descargado se reemplaza por la imagen o el fotograma real.
-- **Más alto:** con 14 filas entran menos mensajes por pantalla. Se puede bajar con `inline_image_max_height`.
+- **Borroso:** una miniatura de 90×160 agrandada a 12 filas se ve borrosa. Es el mismo efecto que la app oficial antes de descargar, y una vez descargado se reemplaza por la imagen o el fotograma real.
+- **Más alto:** con 12 filas entran menos mensajes por pantalla. Se puede bajar con `inline_image_max_height`.

@@ -414,9 +414,8 @@ void UiHistoryView::Draw()
 
         previewLineEnd = (int)wlines.size();
 
-        static const int previewImageMaxHeight = std::min(6, inlineImageMaxHeight);
         if (inlineImagesEnabled && !meta->thumbPath.empty() &&
-            UiImage::Prepare(meta->thumbPath, m_PaddedW, previewImageMaxHeight, imageInfo, true))
+            UiImage::Prepare(meta->thumbPath, m_PaddedW, inlineImageMaxHeight, imageInfo, true))
         {
           imageLineIndex = (int)wlines.size();
           wlines.insert(wlines.end(), imageInfo.rows, std::wstring());

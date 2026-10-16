@@ -11,8 +11,8 @@ Además, el usuario quiere todas las vistas previas un poco más grandes.
 - **Miniaturas incluidas en el mensaje:** se agrandan hasta llenar el mismo recuadro que una imagen descargada. Aplica a imágenes y videos no descargados, y a estados vencidos.
   - Se verán algo borrosas, igual que en la app oficial antes de descargar.
   - Las imágenes descargadas y los fotogramas de video (640 px) no cambian: ya llenan el recuadro.
-- **Tamaño general:** `inline_image_max_height` pasa de 10 a 14 filas por defecto.
-- **Vista previa de link:** su miniatura pasa de 4 a 6 filas como máximo.
+- **Tamaño general:** `inline_image_max_height` pasa de 10 a 12 filas por defecto.
+- **Vista previa de link:** su miniatura pasa de 4 filas como máximo a usar el mismo `inline_image_max_height` que las imágenes.
 
 ## Capabilities
 
@@ -25,6 +25,6 @@ Además, el usuario quiere todas las vistas previas un poco más grandes.
 ## Impact
 
 - `src/uiimage.{h,cpp}`: parámetro `p_Upscale` en `Prepare`, incluido en la clave de caché.
-- `src/uihistoryview.cpp`: agrandar cuando se usa `meta->thumbPath`; vista previa de link con 6 filas.
-- `src/uiconfig.cpp` y `README.md`: default 14.
+- `src/uihistoryview.cpp`: agrandar cuando se usa `meta->thumbPath`; vista previa de link con el mismo máximo.
+- `src/uiconfig.cpp` y `README.md`: default 12.
 - Config del usuario: `~/.config/nchat/ui.conf` tiene `inline_image_max_height=10` escrito, así que el nuevo default no le aplica. Hay que cambiarlo a mano con nchat cerrado.

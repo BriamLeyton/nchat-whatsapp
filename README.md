@@ -498,7 +498,7 @@ This configuration file holds general user interface settings. Default content:
     help_prefix_ctrl=^
     help_prefix_meta=M-
     home_fetch_all=0
-    inline_image_max_height=14
+    inline_image_max_height=12
     inline_images_enabled=1
     linefeed_on_enter=1
     link_open_command=
@@ -734,7 +734,7 @@ Specifies whether `home` button shall repeatedly fetch all chat history.
 ### inline_image_max_height
 
 Specifies the maximum height, in rows, of inline images, video poster frames
-and embedded thumbnails. Link preview thumbnails use at most 6 rows.
+embedded thumbnails and link preview thumbnails.
 
 ### inline_images_enabled
 

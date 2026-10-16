@@ -16,8 +16,8 @@ La miniatura incluida en el mensaje SHALL agrandarse, manteniendo la proporción
 - **THEN** se ve en su tamaño real, sin agrandar
 
 ### Requirement: Tamaños por defecto mayores
-El default de `inline_image_max_height` SHALL ser 14, y la miniatura de una vista previa de link SHALL ocupar hasta 6 filas, o `inline_image_max_height` si es menor.
+El default de `inline_image_max_height` SHALL ser 12, y la miniatura de una vista previa de link SHALL usar el mismo máximo `inline_image_max_height`.
 
 #### Scenario: Config nueva
 - **WHEN** nchat arranca sin `ui.conf`
-- **THEN** `inline_image_max_height=14`
+- **THEN** `inline_image_max_height=12`
