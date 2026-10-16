@@ -541,8 +541,17 @@ void WmChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
         std::string chatId = pinChatRequest->chatId;
         int32_t isPinned = pinChatRequest->isPinned ? 1 : 0;
 
-        CWmPinChat(m_ConnId, const_cast<char*>(chatId.c_str()), isPinned);
+        int rv = CWmPinChat(m_ConnId, const_cast<char*>(chatId.c_str()), isPinned);
         Status::Clear(m_ProfileId, Status::FlagUpdating);
+        if (rv != 0)
+        {
+          // success notifications come from protocol pin events, only report failure here
+          std::shared_ptr<UpdatePinNotify> updatePinNotify = std::make_shared<UpdatePinNotify>(m_ProfileId);
+          updatePinNotify->success = false;
+          updatePinNotify->chatId = chatId;
+          updatePinNotify->isPinned = pinChatRequest->isPinned;
+          CallMessageHandler(updatePinNotify);
+        }
       }
       break;
 

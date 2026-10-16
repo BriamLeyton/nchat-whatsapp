@@ -1388,6 +1388,7 @@ func (handler *WmEventHandler) HandlePin(pin *events.Pin) {
 	isPinned := pinAction.GetPinned()
 	timePinned := int(pin.Timestamp.Unix())
 
+	LOG_INFO(fmt.Sprintf("pin event %s pinned %t time %d", chatId, isPinned, timePinned))
 	LOG_TRACE(fmt.Sprintf("Call CWmUpdatePinNotify %s %s %d", chatId, strconv.FormatBool(isPinned), timePinned))
 	CWmUpdatePinNotify(connId, chatId, BoolToInt(isPinned), timePinned)
 }
@@ -3862,7 +3863,7 @@ func WmPinChat(connId int, chatId string, isPinned int) int {
 		return -1
 	}
 
-	LOG_TRACE(fmt.Sprintf("pin chat ok %s %t", chatId, pin))
+	LOG_INFO(fmt.Sprintf("pin chat ok %s %t", chatId, pin))
 	return 0
 }
 

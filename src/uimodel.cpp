@@ -2457,6 +2457,14 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
         std::string chatId = updatePinNotify->chatId;
         bool isPinned = updatePinNotify->isPinned;
         int64_t lastMessageTime = updatePinNotify->timePinned;
+        if (!updatePinNotify->success)
+        {
+          LOG_WARNING("pin request failed %s %s", chatId.c_str(), (isPinned ? "pin" : "unpin"));
+          SetPendingNotice(std::string(isPinned ? "Pin" : "Unpin") +
+                           " failed, please try again shortly.");
+          break;
+        }
+
         LOG_TRACE("pin notify %s is %s", chatId.c_str(), (isPinned ? "pinned" : "unpinned"));
         if (!m_ChatInfos[profileId].count(chatId)) break;
 
@@ -5540,7 +5548,17 @@ bool UiModel::Process()
     GetImpl().HandleProtocolUiControlEnd();
   }
 
-  return GetImpl().Process();
+  const bool rv = GetImpl().Process();
+
+  // Show notice from protocol response (ex: failed pin), with modal dialog opened without model mutex held
+  const std::string notice = GetImpl().TakePendingNotice();
+  lock.unlock();
+  if (!notice.empty())
+  {
+    MessageDialog("Warning", notice, 0.7, 5);
+  }
+
+  return rv;
 }
 
 void UiModel::RequestContacts()
