@@ -57,6 +57,7 @@ void UiConfig::Init()
     { "list_others_collapsed", "0" },
     { "list_others_header", "OTHERS" },
     { "list_pinned_header", "PINNED" },
+    { "list_status_name", "\xe2\x97\x89 Status" },
     { "list_width", "14" },
     { "listdialog_show_filter", "1" },
     { "mark_read_any_chat", "0" },

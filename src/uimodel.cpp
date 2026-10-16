@@ -171,6 +171,8 @@ void UiModel::Impl::ToggleSectionCollapsed(int p_Section)
 
 int UiModel::Impl::GetChatSection(const std::string& p_ProfileId, const std::string& p_ChatId)
 {
+  if (IsStatusChat(p_ChatId)) return ChatSectionStatus;
+
   const ChatInfo& chatInfo = m_ChatInfos[p_ProfileId][p_ChatId];
   if (chatInfo.isPinned) return ChatSectionPinned;
 
@@ -186,7 +188,7 @@ bool UiModel::Impl::GetSectionCollapsed(int p_Section)
 
 void UiModel::Impl::SetSectionCollapsed(int p_Section, bool p_Collapsed)
 {
-  if (p_Section == ChatSectionPinned) return;
+  if ((p_Section == ChatSectionStatus) || (p_Section == ChatSectionPinned)) return;
 
   m_SectionCollapsed[p_Section] = p_Collapsed;
   UiConfig::SetBool((p_Section == ChatSectionOthers) ? "list_others_collapsed" : "list_archived_collapsed",
@@ -198,8 +200,10 @@ bool UiModel::Impl::IsChatHidden(const std::string& p_ProfileId, const std::stri
   const int section = GetChatSection(p_ProfileId, p_ChatId);
   if (!m_SectionCollapsed[section]) return false;
 
-  // a section only collapses when there are chats in other sections (i.e. section titles are shown)
-  const int otherSectionsCount = (int)m_ChatVec.size() - m_SectionChatCount[section];
+  // a section only collapses when there are chats in other sections (i.e. section titles are shown),
+  // status updates are not part of any titled section
+  const int otherSectionsCount =
+    (int)m_ChatVec.size() - m_SectionChatCount[section] - m_SectionChatCount[ChatSectionStatus];
   return (otherSectionsCount > 0);
 }
 
@@ -1124,6 +1128,7 @@ void UiModel::Impl::OnKeyArchiveChat()
 
   const std::string& profileId = m_CurrentChat.first;
   const std::string& chatId = m_CurrentChat.second;
+  if (IsStatusChat(chatId)) return; // status updates cannot be pinned or archived
 
   bool isArchived = m_ChatInfos[profileId][chatId].isArchived;
   std::shared_ptr<ArchiveChatRequest> archiveChatRequest = std::make_shared<ArchiveChatRequest>();
@@ -1138,6 +1143,7 @@ void UiModel::Impl::OnKeyPinChat()
 
   const std::string& profileId = m_CurrentChat.first;
   const std::string& chatId = m_CurrentChat.second;
+  if (IsStatusChat(chatId)) return; // status updates cannot be pinned or archived
 
   bool isPinned = m_ChatInfos[profileId][chatId].isPinned;
   std::shared_ptr<PinChatRequest> pinChatRequest = std::make_shared<PinChatRequest>();
@@ -2619,7 +2625,7 @@ void UiModel::Impl::SortChats()
   {
     if (m_CurrentChatIndex == -1)
     {
-      m_CurrentChat = m_ChatVec.at(0);
+      m_CurrentChat = m_ChatVec.at(GetFirstChatIndex());
       OnCurrentChatChanged();
     }
     else
@@ -3407,7 +3413,7 @@ bool UiModel::Impl::SetCurrentChatIndexIfNotSet()
 {
   if ((m_CurrentChatIndex >= 0) || (m_ChatVec.empty())) return false;
 
-  m_CurrentChatIndex = 0;
+  m_CurrentChatIndex = GetFirstChatIndex();
   m_CurrentChat = m_ChatVec.at(m_CurrentChatIndex);
 
   UpdateHistory();
@@ -4482,6 +4488,22 @@ void UiModel::Impl::PerformForwardMessage(const std::pair<std::string, std::stri
   // reset message offset and selection mode
   m_MessageOffset[profileId][chatId] = 0;
   SetSelectMessageActive(false);
+}
+
+bool UiModel::Impl::IsStatusChat(const std::string& p_ChatId)
+{
+  return (p_ChatId == "status@broadcast");
+}
+
+int UiModel::Impl::GetFirstChatIndex()
+{
+  // start at first chat, not at status updates
+  for (int i = 0; i < (int)m_ChatVec.size(); ++i)
+  {
+    if (!IsStatusChat(m_ChatVec.at(i).second)) return i;
+  }
+
+  return 0;
 }
 
 bool UiModel::Impl::IsChatForceHidden(const std::string& p_ChatId)
@@ -5772,6 +5794,9 @@ void UiModel::OnKeyArchiveChat()
   {
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     if (GetImpl().GetSelectMessageActive() || GetImpl().GetEditMessageActive()) return;
+
+    // status updates cannot be archived, skip confirmation
+    if (GetImpl().IsStatusChat(GetImpl().GetCurrentChat().second)) return;
 
     const std::string& profileId = GetImpl().GetCurrentChat().first;
     hasFeature = GetImpl().HasProtocolFeature(profileId, FeatureArchiveChat);

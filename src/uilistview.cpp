@@ -7,6 +7,8 @@
 
 #include "uilistview.h"
 
+#include <algorithm>
+
 #include "strutil.h"
 #include "uicolorconfig.h"
 #include "uiconfig.h"
@@ -57,15 +59,25 @@ void UiListView::Draw()
   static int attributeHeader = UiColorConfig::GetAttribute("list_attr_header");
   static const std::string unreadIndicator = " " + UiConfig::GetStr("unread_indicator");
   static const std::wstring wunread = StrUtil::ToWString(unreadIndicator);
+  static int colorPairStatus = UiColorConfig::GetColorPair("list_color_status");
+  static int attributeStatus = UiColorConfig::GetAttribute("list_attr_status");
+  static const std::string statusName = UiConfig::GetStr("list_status_name");
   static const std::string sectionHeaders[ChatSectionCount] =
   {
+    "",
     UiConfig::GetStr("list_pinned_header"),
     UiConfig::GetStr("list_others_header"),
     UiConfig::GetStr("list_archived_header"),
   };
 
-  int index = std::max(0, m_Model->GetCurrentChatIndexLocked());
   const std::vector<std::pair<std::string, std::string>>& p_ChatVec = m_Model->GetChatVecLocked();
+  int index = m_Model->GetCurrentChatIndexLocked();
+  if (index < 0)
+  {
+    // index not yet set, highlight current chat (which is not necessarily the first, e.g. status updates)
+    auto it = std::find(p_ChatVec.begin(), p_ChatVec.end(), m_Model->GetCurrentChatLocked());
+    index = (it != p_ChatVec.end()) ? (int)std::distance(p_ChatVec.begin(), it) : 0;
+  }
 
   // build rows: section headers (chatIndex -1) and visible chats, chat vec is sorted by section
   struct Row
@@ -78,8 +90,8 @@ void UiListView::Draw()
   std::vector<std::string> names;
   std::vector<bool> unreads;
   std::vector<int> sections;
-  int sectionCounts[ChatSectionCount] = { 0, 0, 0 };
-  bool sectionUnreads[ChatSectionCount] = { false, false, false };
+  int sectionCounts[ChatSectionCount] = { 0, 0, 0, 0 };
+  bool sectionUnreads[ChatSectionCount] = { false, false, false, false };
   for (auto& chatPair : p_ChatVec)
   {
     const std::string& name = m_Model->GetContactListNameLocked(chatPair.first, chatPair.second, true /*p_AllowId*/,
@@ -93,15 +105,16 @@ void UiListView::Draw()
     sectionUnreads[section] = sectionUnreads[section] || isUnread;
   }
 
-  // headers are only shown when chats exist in other sections than "others"
-  const bool showHeaders = (sectionCounts[ChatSectionOthers] < (int)p_ChatVec.size());
+  // headers are only shown when there are pinned or archived chats, status updates have no header
+  const bool showHeaders = ((sectionCounts[ChatSectionPinned] + sectionCounts[ChatSectionArchived]) > 0);
+  const int titledChatCount = (int)p_ChatVec.size() - sectionCounts[ChatSectionStatus];
   std::vector<Row> rows;
   int selectedRow = 0;
   int prevSection = -1;
   for (int i = 0; i < (int)p_ChatVec.size(); ++i)
   {
     const int section = sections[i];
-    if (showHeaders && (section != prevSection))
+    if (showHeaders && (section != prevSection) && (section != ChatSectionStatus))
     {
       rows.push_back(Row{ -1, section });
       prevSection = section;
@@ -135,7 +148,7 @@ void UiListView::Draw()
       {
         const int section = row.section;
         const bool collapsed = m_Model->GetSectionCollapsedLocked(section) &&
-          (sectionCounts[section] < (int)p_ChatVec.size());
+          (sectionCounts[section] < titledChatCount);
         // "▾ TITLE ─────" when expanded, "▸ TITLE (N) ──── *" when collapsed
         std::string header = (collapsed ? "\xe2\x96\xb8 " : "\xe2\x96\xbe ") + sectionHeaders[section];
         if (collapsed)
@@ -172,6 +185,31 @@ void UiListView::Draw()
       }
 
       const int i = row.chatIndex;
+      if (sections[i] == ChatSectionStatus)
+      {
+        // status updates: full width row with own style, unread indicator in same style
+        const int statusAttribute = attributeStatus | ((i == index) ? attributeSelected : 0);
+        const int unreadW = unreads[i] ? StrUtil::WStringWidth(wunread) : 0;
+        std::string name = statusName;
+        if (!emojiEnabled)
+        {
+          name = StrUtil::Textize(name);
+        }
+
+        std::wstring wname = StrUtil::TrimPadWString(StrUtil::ToWString(name), m_PaddedW - unreadW);
+        if (unreads[i])
+        {
+          wname += wunread;
+        }
+
+        wattroff(m_PaddedWin, attribute | colorPair);
+        wattron(m_PaddedWin, statusAttribute | colorPairStatus);
+        mvwaddnwstr(m_PaddedWin, y, 0, wname.c_str(), wname.size());
+        wattroff(m_PaddedWin, statusAttribute | colorPairStatus);
+        wattron(m_PaddedWin, attribute | colorPair);
+        continue;
+      }
+
       if (i == index)
       {
         wattroff(m_PaddedWin, attribute);

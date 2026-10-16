@@ -23,10 +23,11 @@ class UiView;
 // chat list sections, in display order
 enum ChatSection
 {
-  ChatSectionPinned = 0,
-  ChatSectionOthers = 1,
-  ChatSectionArchived = 2,
-  ChatSectionCount = 3,
+  ChatSectionStatus = 0, // status updates, listed first without a section title
+  ChatSectionPinned = 1,
+  ChatSectionOthers = 2,
+  ChatSectionArchived = 3,
+  ChatSectionCount = 4,
 };
 
 class UiModel
@@ -49,6 +50,8 @@ private:
     void OnKeyToggleArchived();
     void ToggleSectionCollapsed(int p_Section);
     int GetChatSection(const std::string& p_ProfileId, const std::string& p_ChatId);
+    bool IsStatusChat(const std::string& p_ChatId);
+    int GetFirstChatIndex();
     bool GetSectionCollapsed(int p_Section);
     void SetSectionCollapsed(int p_Section, bool p_Collapsed);
     bool IsChatHidden(const std::string& p_ProfileId, const std::string& p_ChatId);
@@ -270,8 +273,8 @@ private:
 
     std::pair<std::string, std::string> m_CurrentChat;
     int m_CurrentChatIndex = -1;
-    bool m_SectionCollapsed[ChatSectionCount] = { false, false, false };
-    int m_SectionChatCount[ChatSectionCount] = { 0, 0, 0 };
+    bool m_SectionCollapsed[ChatSectionCount] = { false, false, false, false };
+    int m_SectionChatCount[ChatSectionCount] = { 0, 0, 0, 0 };
     static const std::pair<std::string, std::string> s_ChatNone;
 
     std::string m_EditMessageId;
