@@ -91,6 +91,7 @@ void UiConfig::Init()
     { "spell_check_command", "" },
     { "status_broadcast", "1" },
     { "status_enabled", "1" },
+    { "status_new_indicator", "\xe2\x97\x8f" },
     { "status_prefetch", "1" },
     { "status_prefetch_video_max_mb", "16" },
     { "status_video_retention_days", "0" },

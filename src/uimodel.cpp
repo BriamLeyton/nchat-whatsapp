@@ -8,6 +8,7 @@
 #include "uimodel.h"
 
 #include <algorithm>
+#include <sstream>
 #include <thread>
 
 #include <ncurses.h>
@@ -1247,6 +1248,93 @@ void UiModel::Impl::MarkStatusOpened()
 
   LOG_DEBUG("status opened %s", msgId.c_str());
   MarkRead(profileId, chatId, msgId, true /*p_WasUnread*/, true /*p_Opened*/);
+}
+
+bool UiModel::Impl::IsStatusNew(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                const ChatMessage& p_ChatMessage)
+{
+  if (!IsStatusChat(p_ChatId) || p_ChatMessage.isOutgoing || p_ChatMessage.isRead) return false;
+
+  StatusSeen& statusSeen = GetStatusSeen(p_ProfileId);
+  if (p_ChatMessage.timeSent <= statusSeen.baseline) return false;
+
+  return (statusSeen.msgTimes.count(p_ChatMessage.id) == 0);
+}
+
+void UiModel::Impl::MarkStatusSeen(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                   const std::string& p_MsgId)
+{
+  const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[p_ProfileId][p_ChatId];
+  auto mit = messages.find(p_MsgId);
+  if ((mit == messages.end()) || !IsStatusNew(p_ProfileId, p_ChatId, mit->second)) return;
+
+  // seen in list only, no read receipt sent and message stays unread until opened
+  LOG_DEBUG("status seen %s", p_MsgId.c_str());
+  GetStatusSeen(p_ProfileId).msgTimes[p_MsgId] = mit->second.timeSent;
+  WriteStatusSeen(p_ProfileId);
+  UpdateChatInfoIsUnread(p_ProfileId, p_ChatId);
+  UpdateList();
+}
+
+UiModel::Impl::StatusSeen& UiModel::Impl::GetStatusSeen(const std::string& p_ProfileId)
+{
+  StatusSeen& statusSeen = m_StatusSeen[p_ProfileId];
+  if (statusSeen.loaded) return statusSeen;
+
+  statusSeen.loaded = true;
+  const std::string path = FileUtil::GetApplicationDir() + "/profiles/" + p_ProfileId + "/status_seen";
+  if (!FileUtil::Exists(path))
+  {
+    // first run, existing status updates are not new
+    statusSeen.baseline = TimeUtil::GetCurrentTimeMSec();
+    WriteStatusSeen(p_ProfileId);
+    return statusSeen;
+  }
+
+  std::istringstream stream(FileUtil::ReadFile(path));
+  std::string line;
+  while (std::getline(stream, line))
+  {
+    std::istringstream lineStream(line);
+    std::string key;
+    int64_t timeSent = 0;
+    if (!(lineStream >> key >> timeSent)) continue;
+
+    if (key == "baseline")
+    {
+      statusSeen.baseline = timeSent;
+    }
+    else
+    {
+      statusSeen.msgTimes[key] = timeSent;
+    }
+  }
+
+  return statusSeen;
+}
+
+void UiModel::Impl::WriteStatusSeen(const std::string& p_ProfileId)
+{
+  // drop entries older than 30 days, raising baseline to the same cutoff
+  static const int64_t pruneMSec = 30 * 24 * 60 * 60 * 1000LL;
+  StatusSeen& statusSeen = m_StatusSeen[p_ProfileId];
+  const int64_t cutoff = TimeUtil::GetCurrentTimeMSec() - pruneMSec;
+  statusSeen.baseline = std::max(statusSeen.baseline, cutoff);
+  for (auto it = statusSeen.msgTimes.begin(); it != statusSeen.msgTimes.end(); /* incremented in loop */)
+  {
+    it = (it->second <= statusSeen.baseline) ? statusSeen.msgTimes.erase(it) : std::next(it);
+  }
+
+  std::string data = "baseline " + std::to_string(statusSeen.baseline) + "\n";
+  for (const auto& msgTime : statusSeen.msgTimes)
+  {
+    data += msgTime.first + " " + std::to_string(msgTime.second) + "\n";
+  }
+
+  const std::string path = FileUtil::GetApplicationDir() + "/profiles/" + p_ProfileId + "/status_seen";
+  const std::string tmpPath = path + ".tmp";
+  FileUtil::WriteFile(tmpPath, data);
+  FileUtil::Move(tmpPath, path);
 }
 
 void UiModel::Impl::OnKeyOpenMsg()
@@ -2814,6 +2902,12 @@ void UiModel::Impl::UpdateChatInfoLastMessageTime(const std::string& p_ProfileId
 
 void UiModel::Impl::UpdateChatInfoIsUnread(const std::string& p_ProfileId, const std::string& p_ChatId)
 {
+  if (IsStatusChat(p_ChatId))
+  {
+    // load (or create on first run) seen status updates before any new status arrives
+    GetStatusSeen(p_ProfileId);
+  }
+
   const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[p_ProfileId][p_ChatId];
   const std::string lastMessageId = GetLastMessageId(p_ProfileId, p_ChatId);
   if (lastMessageId.empty()) return;
@@ -2821,6 +2915,14 @@ void UiModel::Impl::UpdateChatInfoIsUnread(const std::string& p_ProfileId, const
   bool isRead = true;
   const ChatMessage& chatMessage = messages.at(lastMessageId);
   isRead = chatMessage.isOutgoing ? true : chatMessage.isRead;
+  if (IsStatusChat(p_ChatId))
+  {
+    // status updates are unread while any is new (not selected in list nor opened)
+    isRead = std::none_of(messages.begin(), messages.end(), [&](const auto& p_Message)
+    {
+      return IsStatusNew(p_ProfileId, p_ChatId, p_Message.second);
+    });
+  }
 
   bool isUnread = !isRead;
   bool hasMention = chatMessage.hasMention;
@@ -5903,6 +6005,20 @@ void UiModel::MarkReadLocked(const std::string& p_ProfileId, const std::string& 
 {
   nc_assert(m_ModelMutex.owns_lock());
   GetImpl().MarkRead(p_ProfileId, p_ChatId, p_MsgId, p_WasUnread);
+}
+
+bool UiModel::IsStatusNewLocked(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                const ChatMessage& p_ChatMessage)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().IsStatusNew(p_ProfileId, p_ChatId, p_ChatMessage);
+}
+
+void UiModel::MarkStatusSeenLocked(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                   const std::string& p_MsgId)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  GetImpl().MarkStatusSeen(p_ProfileId, p_ChatId, p_MsgId);
 }
 
 void UiModel::OnStatusUpdateLocked(uint32_t p_Status)

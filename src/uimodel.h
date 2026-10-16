@@ -100,6 +100,8 @@ private:
                   bool p_WasUnread,
                   bool p_Opened = false);
     void MarkStatusOpened();
+    bool IsStatusNew(const std::string& p_ProfileId, const std::string& p_ChatId, const ChatMessage& p_ChatMessage);
+    void MarkStatusSeen(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_MsgId);
     void OnStatusUpdate(uint32_t p_Status);
     void DownloadAttachment(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_MsgId,
                             const std::string& p_FileId, DownloadFileAction p_DownloadFileAction);
@@ -318,6 +320,17 @@ private:
     std::unordered_set<std::string> m_StatusFilterLoadedIds;
     bool m_StatusFilterExhausted = false;
 
+    // status updates seen in list (selected, not opened), local only, persisted in <profile>/status_seen
+    struct StatusSeen
+    {
+      bool loaded = false;
+      int64_t baseline = 0; // status updates sent before this time are never new
+      std::unordered_map<std::string, int64_t> msgTimes;
+    };
+    StatusSeen& GetStatusSeen(const std::string& p_ProfileId);
+    void WriteStatusSeen(const std::string& p_ProfileId);
+    std::unordered_map<std::string, StatusSeen> m_StatusSeen;
+
     // status prefetch queue (one download at a time), entries are profile id, chat id, msg id
     std::deque<std::tuple<std::string, std::string, std::string>> m_StatusPrefetchQueue;
     std::unordered_set<std::string> m_StatusPrefetchQueued;
@@ -453,6 +466,9 @@ public:
   bool IsMultipleProfilesLocked();
   void MarkReadLocked(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_MsgId,
                       bool p_WasUnread);
+  bool IsStatusNewLocked(const std::string& p_ProfileId, const std::string& p_ChatId,
+                         const ChatMessage& p_ChatMessage);
+  void MarkStatusSeenLocked(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_MsgId);
   void OnStatusUpdateLocked(uint32_t p_Status);
 
   // Static methods

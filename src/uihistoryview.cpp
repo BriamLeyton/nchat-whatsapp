@@ -625,6 +625,21 @@ void UiHistoryView::Draw()
       }();
 
       std::string name = m_Model->GetContactNameLocked(currentChat.first, msg.senderId);
+      if (currentChat.second == "status@broadcast")
+      {
+        // selecting a new status update marks it seen in list (local only, not opened)
+        if (p_Final && isSelectedMessage)
+        {
+          m_Model->MarkStatusSeenLocked(currentChat.first, currentChat.second, *it);
+        }
+
+        static const std::string statusNewIndicator = UiConfig::GetStr("status_new_indicator") + " ";
+        if (m_Model->IsStatusNewLocked(currentChat.first, currentChat.second, msg))
+        {
+          name = statusNewIndicator + name;
+        }
+      }
+
       if (!emojiEnabled)
       {
         name = StrUtil::Textize(name);

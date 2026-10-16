@@ -59,6 +59,7 @@ void UiListView::Draw()
   static int attributeHeader = UiColorConfig::GetAttribute("list_attr_header");
   static const std::string unreadIndicator = " " + UiConfig::GetStr("unread_indicator");
   static const std::wstring wunread = StrUtil::ToWString(unreadIndicator);
+  static const std::wstring wstatusNew = StrUtil::ToWString(" " + UiConfig::GetStr("status_new_indicator"));
   static int colorPairStatus = UiColorConfig::GetColorPair("list_color_status");
   static int attributeStatus = UiColorConfig::GetAttribute("list_attr_status");
   static const std::string statusName = UiConfig::GetStr("list_status_name");
@@ -187,9 +188,9 @@ void UiListView::Draw()
       const int i = row.chatIndex;
       if (sections[i] == ChatSectionStatus)
       {
-        // status updates: full width row with own style, unread indicator in same style
+        // status updates: full width row with own style, new status indicator in same style
         const int statusAttribute = attributeStatus | ((i == index) ? attributeSelected : 0);
-        const int unreadW = unreads[i] ? StrUtil::WStringWidth(wunread) : 0;
+        const int unreadW = unreads[i] ? StrUtil::WStringWidth(wstatusNew) : 0;
         std::string name = statusName;
         const std::string filterSenderId = m_Model->GetStatusFilterSenderIdLocked();
         if (!filterSenderId.empty())
@@ -207,7 +208,7 @@ void UiListView::Draw()
         std::wstring wname = StrUtil::TrimPadWString(StrUtil::ToWString(name), m_PaddedW - unreadW);
         if (unreads[i])
         {
-          wname += wunread;
+          wname += wstatusNew;
         }
 
         wattroff(m_PaddedWin, attribute | colorPair);

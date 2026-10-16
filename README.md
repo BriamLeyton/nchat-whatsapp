@@ -528,6 +528,7 @@ This configuration file holds general user interface settings. Default content:
     spell_check_command=
     status_broadcast=1
     status_enabled=1
+    status_new_indicator=●
     status_prefetch=1
     status_prefetch_video_max_mb=16
     status_video_retention_days=0
@@ -852,6 +853,12 @@ opened with `open` (attachment) or `open_msg` (text) on the selected status,
 which sends the viewed receipt to its author. Unopened status updates remain
 unread.
 
+New status updates are prefixed with `status_new_indicator` (default `●`),
+which is also shown on the Status Updates row of the chat list instead of
+`unread_indicator`. Selecting a status update removes its indicator without
+marking it viewed (no receipt is sent). Status updates seen this way are stored
+locally in `status_seen` in the profile directory.
+
 Status updates older than 24 hours are local only: opening them marks them
 read in nchat without sending read receipts, their attachments are never
 downloaded (already downloaded files are still shown), and reacting to them is
@@ -971,6 +978,12 @@ Specifies (WhatsApp) Status Updates chat level of visibility:
 ### status_enabled
 
 Specifies whether to display status bar.
+
+### status_new_indicator
+
+Specifies the indicator for new status updates, shown before the contact name
+of status updates not yet selected nor opened, and on the Status Updates row of
+the chat list.
 
 ### status_prefetch
 
