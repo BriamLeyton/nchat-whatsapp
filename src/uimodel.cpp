@@ -384,6 +384,13 @@ void UiModel::Impl::SendStatusReply()
   entryPos = 0;
   SetSelectMessageActive(false);
   UpdateEntry();
+
+  // continue in author chat to see the reply, like the official app (stay if no chat with author yet)
+  const std::pair<std::string, std::string> authorChat(profileId, status.senderId);
+  if (m_ChatSet[profileId].count(status.senderId) > 0)
+  {
+    GotoChat(authorChat);
+  }
 }
 
 void UiModel::Impl::OnKeyOtherCommandsHelp()
@@ -2229,7 +2236,11 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
           const std::string name = GetContactName(profileId, sendMessageNotify->chatId);
           if (sendMessageNotify->success)
           {
-            SetPendingNotice("Reply sent to " + name + ".");
+            // only notify if still in status updates, otherwise the reply is shown in author chat
+            if (IsStatusChat(m_CurrentChat.second))
+            {
+              SetPendingNotice("Reply sent to " + name + ".");
+            }
           }
           else
           {
@@ -2242,7 +2253,7 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
               UpdateEntry();
             }
 
-            SetPendingNotice("Reply to " + name + " failed, please try again.");
+            SetPendingNotice("Reply to " + name + " failed, please try again from Status Updates.");
           }
         }
       }

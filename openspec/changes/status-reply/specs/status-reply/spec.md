@@ -10,7 +10,7 @@ En Status, con un estado vigente de otra persona seleccionado, enviar un texto S
 #### Scenario: Responder un estado
 - **WHEN** el usuario selecciona un estado vigente de un contacto, escribe un texto y da Enter
 - **THEN** el texto llega al chat privado del contacto citando el estado
-- **AND** nchat sigue en Status y muestra "Reply sent to <nombre>."
+- **AND** nchat pasa al chat del contacto, o si no hay chat con él, sigue en Status y muestra "Reply sent to <nombre>."
 
 #### Scenario: Sin estado seleccionado
 - **WHEN** el usuario escribe en Status sin estado seleccionado y da Enter

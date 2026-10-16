@@ -8,8 +8,8 @@ En WhatsApp, responder un estado es enviar un mensaje privado al autor citando e
 
 - En Status, con un estado seleccionado, escribir y dar Enter envía la respuesta al chat privado del autor, citando el estado como lo hace WhatsApp.
 - Al enviar:
-  - nchat se queda en Status;
-  - aparece el aviso "Reply sent to <nombre>.", o si falla, "Reply to <nombre> failed, please try again." con el texto de vuelta en la entrada;
+  - nchat pasa al chat del autor, donde se ve la respuesta con la cita, como en la app. Si todavía no hay chat con el autor, se queda en Status con el aviso "Reply sent to <nombre>.";
+  - si falla, aparece "Reply to <nombre> failed, please try again from Status Updates." y el texto vuelve a la entrada de Status;
   - la respuesta aparece en el chat del autor como cualquier mensaje enviado.
 - La cita incluye el texto del estado y, si es foto o video, su miniatura incluida en el mensaje (`<id>.thumb.jpg`). No se descarga nada.
 - Siguen bloqueados, con un aviso:
