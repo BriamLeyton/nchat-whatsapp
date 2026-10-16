@@ -869,6 +869,16 @@ func (handler *WmEventHandler) HandleEvent(rawEvt interface{}) {
 			if client := GetClient(handler.connId); client != nil {
 				client.EmitAppStateEventsOnFullSync = false
 			}
+
+			if evt.Name == appstate.WAPatchRegularLow {
+				// locked chats are known once regular_low is recovered
+				syncedPath := GetLockedSyncedPath(GetPath(handler.connId))
+				if writeErr := WriteFileAtomic(syncedPath, []byte(strconv.FormatInt(time.Now().Unix(), 10))); writeErr != nil {
+					LOG_WARNING(fmt.Sprintf("locked synced write err %#v", writeErr))
+				} else {
+					LOG_INFO("locked chats synced by recovery")
+				}
+			}
 		}
 		if evt.Name == appstate.WAPatchCriticalBlock {
 			LOG_TRACE("AppStateSyncComplete WAPatchCriticalBlock")
@@ -1096,6 +1106,10 @@ func (handler *WmEventHandler) SyncLockedChats() {
 		client.EmitAppStateEventsOnFullSync = prevEmit
 		if fetchErr == nil {
 			appStateResyncTime[appstate.WAPatchRegularLow] = time.Now()
+		} else if errors.Is(fetchErr, appstate.ErrMismatchingLTHash) {
+			// server snapshot is inconsistent, ask the phone for a recovery snapshot instead, its
+			// events are emitted when the response arrives, and synced mark is then set
+			RequestAppStateRecovery(client, ctx, appstate.WAPatchRegularLow)
 		}
 		appStateResyncMutex.Unlock()
 

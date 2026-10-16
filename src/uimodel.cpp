@@ -6989,10 +6989,12 @@ void UiModel::OnKeyToggleLocked()
     }
 
     // secret code hash is synced from whatsapp to profile dir, no point asking without it
-    const std::string profileId = GetImpl().GetDefaultProfileId();
-    if (!FileUtil::Exists(FileUtil::GetApplicationDir() + "/profiles/" + profileId + "/chat_lock"))
+    const std::string profileDir = FileUtil::GetApplicationDir() + "/profiles/" + GetImpl().GetDefaultProfileId();
+    if (!FileUtil::Exists(profileDir + "/chat_lock"))
     {
-      GetImpl().SetPendingNotice("Set a secret code for locked chats in WhatsApp on your phone.");
+      GetImpl().SetPendingNotice(FileUtil::Exists(profileDir + "/locked_synced")
+                                 ? "Set a secret code for locked chats in WhatsApp on your phone."
+                                 : "Locked chats are not synced yet, please try again later.");
       GetImpl().ReinitView();
       return;
     }

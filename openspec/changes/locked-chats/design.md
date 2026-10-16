@@ -13,7 +13,9 @@
 - En `events.AppState`:
   - `lock`: `CWmUpdateLockedNotify(connId, GetChatId(jid), locked)`;
   - `setting_chatLock`: se escribe `<profile>/chat_lock` (proto `ChatLockSettings` serializado, escritura atómica) y se avisa con `CWmUpdateLockedNotify(connId, "", hasCode)` para que la UI sepa que hay código.
-- Descarga completa: tras `events.Connected`, si no existe `<profile>/locked_synced`, en una goroutine `FetchAppState(regular_low, true, false)`; al terminar sin error se crea `locked_synced`. Con error se reintenta en la próxima conexión.
+- Descarga completa: tras `events.Connected`, si no existe `<profile>/locked_synced`, en una goroutine `FetchAppState(regular_low, true, false)` con `EmitAppStateEventsOnFullSync` y el mutex de `ResyncAppState`; al terminar sin error se crea `locked_synced`.
+  - Si el snapshot del servidor no verifica (`ErrMismatchingLTHash`), se pide al teléfono un snapshot de recuperación (`RequestAppStateRecovery`, como WhatsApp Web). Al llegar (`AppStateSyncComplete{Recovery}` de `regular_low`) se emiten sus eventos y se crea `locked_synced`.
+  - Con otro error, o sin respuesta del teléfono, se reintenta en la próxima conexión.
 - `WmCheckSecretCode(connId, code)`: lee `chat_lock`, deriva PBKDF2 con el hash, sal e iteraciones de `transformerArg`, y compara con `transformedData` en tiempo constante. Codificación del código según `encoding` (UTF-8). Resultado: 0 correcto, 1 incorrecto, 2 sin código. Se responde con `CheckSecretCodeNotify`.
 - Las claves exactas de `transformerArg` y la codificación se confirman en la implementación con el valor real (sin mostrar el hash en el log).
 
