@@ -369,6 +369,7 @@ class CreateChatRequest : public RequestMessage
 public:
   virtual MessageType GetMessageType() const { return CreateChatRequestType; }
   std::string userId;
+  std::string phone; // digits only, checked against WhatsApp when set (userId is then empty)
 };
 
 class DeferNotifyRequest : public RequestMessage
@@ -598,6 +599,13 @@ public:
   bool isOnline;
 };
 
+enum CreateChatResult
+{
+  CreateChatResultError = -1, // check failed, may be retried
+  CreateChatResultOk = 0,
+  CreateChatResultNotOnWhatsApp = 1,
+};
+
 class CreateChatNotify : public ServiceMessage
 {
 public:
@@ -606,6 +614,8 @@ public:
   virtual MessageType GetMessageType() const { return CreateChatNotifyType; }
   bool success = false;
   ChatInfo chatInfo;
+  std::string phone; // set for chats created by phone number
+  int result = CreateChatResultOk;
 };
 
 class ReceiveTypingNotify : public ServiceMessage

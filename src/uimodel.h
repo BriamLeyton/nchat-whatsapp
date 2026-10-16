@@ -154,6 +154,9 @@ private:
     std::map<std::string, std::string> ParseMentions(const std::string& p_ProfileId, const std::string& p_ChatId,
                                                      const std::string& p_Text);
     void OpenCreateChat(const std::pair<std::string, std::string>& p_Chat);
+    void OpenChatByPhone(const std::string& p_ProfileId, const std::string& p_Phone, const std::string& p_Text);
+    std::string GetDefaultProfileId();
+    void ApplyLinkText(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_Text);
     void FetchCachedMessage(const std::string& p_ProfileId, const std::string& p_ChatId,
                             const std::string& p_MsgId);
 
@@ -370,6 +373,8 @@ private:
     // chat banner: avatars requested this session, pending avatar open, status counts per contact
     std::unordered_map<std::string, std::unordered_set<std::string>> m_AvatarRequested;
     std::pair<std::string, std::string> m_AvatarOpenChat;
+    // message text from opened link, by profile and phone number, applied when chat is created
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> m_PendingLinkText;
     std::unordered_map<std::string, std::unordered_map<std::string, std::pair<int, int>>> m_StatusCounts;
     std::pair<std::string, std::string> m_StatusReturnChat; // chat to return to from status filter (Alt-u)
 

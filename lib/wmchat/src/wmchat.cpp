@@ -600,6 +600,15 @@ void WmChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
         std::shared_ptr<CreateChatRequest> createChatRequest =
           std::static_pointer_cast<CreateChatRequest>(p_RequestMessage);
         std::string userId = createChatRequest->userId;
+        std::string phone = createChatRequest->phone;
+
+        if (!phone.empty())
+        {
+          // checked against WhatsApp asynchronously, notified by WmCreateChatNotify
+          LOG_DEBUG("create chat by phone %s", phone.c_str());
+          CWmCreateChat(m_ConnId, const_cast<char*>(phone.c_str()));
+          break;
+        }
 
         std::shared_ptr<CreateChatNotify> createChatNotify = std::make_shared<CreateChatNotify>(m_ProfileId);
         createChatNotify->success = true;
@@ -1254,6 +1263,26 @@ void WmNewAvatarNotify(int p_ConnId, char* p_ChatId, int p_IsFull, int p_Result)
   }
 
   free(p_ChatId);
+}
+
+void WmCreateChatNotify(int p_ConnId, char* p_ChatId, char* p_Phone, int p_Result)
+{
+  WmChat* instance = WmChat::GetInstance(p_ConnId);
+  if (instance != nullptr)
+  {
+    std::shared_ptr<CreateChatNotify> createChatNotify = std::make_shared<CreateChatNotify>(instance->GetProfileId());
+    createChatNotify->success = (p_Result == CreateChatResultOk);
+    createChatNotify->chatInfo.id = std::string(p_ChatId);
+    createChatNotify->phone = std::string(p_Phone);
+    createChatNotify->result = p_Result;
+
+    std::shared_ptr<DeferNotifyRequest> deferNotifyRequest = std::make_shared<DeferNotifyRequest>();
+    deferNotifyRequest->serviceMessage = createChatNotify;
+    instance->SendRequest(deferNotifyRequest);
+  }
+
+  free(p_ChatId);
+  free(p_Phone);
 }
 
 void WmUpdateArchivedNotify(int p_ConnId, char* p_ChatId, int p_IsArchived)

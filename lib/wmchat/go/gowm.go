@@ -3510,6 +3510,56 @@ func WmSendMessage(connId int, chatId string, text string, quotedId string, quot
 	return 0
 }
 
+// create chat results, matching CreateChatResult in protocol.h
+const (
+	createChatResultError         = -1
+	createChatResultOk            = 0
+	createChatResultNotOnWhatsApp = 1
+)
+
+// Create chat by phone number (digits only) in background, after checking it is registered on WhatsApp
+func WmCreateChat(connId int, phone string) int {
+
+	LOG_TRACE("create chat " + strconv.Itoa(connId) + ", " + phone)
+
+	// sanity check arg
+	if connId == -1 {
+		LOG_WARNING("invalid connId")
+		return -1
+	}
+
+	// get client
+	var client *whatsmeow.Client = GetClient(connId)
+	if client == nil {
+		LOG_WARNING("client is nil")
+		return -1
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		resps, err := client.IsOnWhatsApp(ctx, []string{"+" + phone})
+		if err != nil {
+			LOG_WARNING(fmt.Sprintf("is on whatsapp err %#v", err))
+			CWmCreateChatNotify(connId, "", phone, createChatResultError)
+			return
+		}
+
+		for _, resp := range resps {
+			if resp.IsIn {
+				LOG_DEBUG("create chat " + phone + " is " + resp.JID.ToNonAD().String())
+				CWmCreateChatNotify(connId, resp.JID.ToNonAD().String(), phone, createChatResultOk)
+				return
+			}
+		}
+
+		LOG_DEBUG("create chat " + phone + " not on whatsapp")
+		CWmCreateChatNotify(connId, "", phone, createChatResultNotOnWhatsApp)
+	}()
+
+	return 0
+}
+
 // avatar results, matching AvatarResult in protocol.h
 const (
 	avatarResultError = -1

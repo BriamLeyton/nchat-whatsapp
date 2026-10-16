@@ -71,7 +71,7 @@ Interactive Commands:
     Alt-e       external editor compose
     Alt-h       collapse/expand archived chats section
     Alt-i       auto-compose reply
-    Alt-n       search contacts
+    Alt-n       search contacts, or open chat by phone number or link
     Alt-o       collapse/expand others chats section
     Alt-p       pin/unpin current chat
     Alt-t       external telephone call
@@ -111,6 +111,15 @@ Interactive Commands for Text Input:
     Alt-c       copy input buffer to clipboard (if no message selected)
     Alt-v       paste into input buffer from clipboard
     Alt-x       cut input buffer to clipboard
+
+Typing or pasting an international phone number (with country code, e.g.
+`+1 555 123 4567`) or a WhatsApp link (`https://wa.me/...`,
+`https://api.whatsapp.com/send/?phone=...`, `whatsapp://send?phone=...`) in
+the Alt-n contact search shows an `Open chat with +<number>` item first.
+Selecting it opens the existing chat with that number, or checks once with
+WhatsApp that the number is registered and creates the chat. The `text` of
+a link is placed in the message input, unsent, unless the chat already has a
+draft.
 
 
 Supported Platforms

@@ -42,7 +42,7 @@ namespace
           { "prev_chat", "Previous chat" },
           { "unread_chat", "Jump to unread chat" },
           { "goto_chat", "Go to chat" },
-          { "select_contact", "Search contacts" },
+          { "select_contact", "Search contacts, or open chat by number/link" },
           { "pin", "Pin/unpin chat" },
           { "archive_chat", "Archive/unarchive chat" },
           { "delete_chat", "Delete/leave chat" },

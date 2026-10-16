@@ -2138,6 +2138,61 @@ void UiModel::Impl::OpenCreateChat(const std::pair<std::string, std::string>& p_
   ReinitView();
 }
 
+std::string UiModel::Impl::GetDefaultProfileId()
+{
+  // profile of current chat, or first profile when no chat is open
+  if (!m_CurrentChat.first.empty()) return m_CurrentChat.first;
+
+  return m_Protocols.empty() ? std::string() : m_Protocols.begin()->first;
+}
+
+void UiModel::Impl::OpenChatByPhone(const std::string& p_ProfileId, const std::string& p_Phone,
+                                    const std::string& p_Text)
+{
+  if (p_ProfileId.empty()) return;
+
+  // existing chat is opened without asking WhatsApp
+  const std::string chatId = p_Phone + "@s.whatsapp.net";
+  if (m_ChatInfos[p_ProfileId].count(chatId))
+  {
+    OpenCreateChat(std::make_pair(p_ProfileId, chatId));
+    ApplyLinkText(p_ProfileId, chatId, p_Text);
+    return;
+  }
+
+  if (!(Status::Get(Status::FlagOnline) & Status::FlagOnline))
+  {
+    SetPendingNotice("Not connected, please try again later.");
+    ReinitView();
+    return;
+  }
+
+  LOG_TRACE("create chat by phone %s", p_Phone.c_str());
+  m_PendingLinkText[p_ProfileId][p_Phone] = p_Text;
+  std::shared_ptr<CreateChatRequest> createChatRequest = std::make_shared<CreateChatRequest>();
+  createChatRequest->phone = p_Phone;
+  SendProtocolRequest(p_ProfileId, createChatRequest);
+  ReinitView();
+}
+
+void UiModel::Impl::ApplyLinkText(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                  const std::string& p_Text)
+{
+  if (p_Text.empty()) return;
+
+  // link text is only a draft, an existing draft is never replaced
+  std::wstring& entryStr = m_EntryStr[p_ProfileId][p_ChatId];
+  if (!entryStr.empty())
+  {
+    SetPendingNotice("Draft kept, link text not inserted.");
+    return;
+  }
+
+  entryStr = StrUtil::ToWString(p_Text);
+  m_EntryPos[p_ProfileId][p_ChatId] = (int)entryStr.size();
+  UpdateEntry();
+}
+
 void UiModel::Impl::FetchCachedMessage(const std::string& p_ProfileId, const std::string& p_ChatId,
                                        const std::string& p_MsgId)
 {
@@ -2663,7 +2718,32 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
       {
         std::shared_ptr<CreateChatNotify> createChatNotify =
           std::static_pointer_cast<CreateChatNotify>(p_ServiceMessage);
-        if (createChatNotify->success)
+        const std::string& phone = createChatNotify->phone;
+        std::string linkText;
+        if (!phone.empty())
+        {
+          linkText = m_PendingLinkText[profileId][phone];
+          m_PendingLinkText[profileId].erase(phone);
+          if (createChatNotify->result == CreateChatResultNotOnWhatsApp)
+          {
+            SetPendingNotice("+" + phone + " is not on WhatsApp.");
+          }
+          else if (createChatNotify->result != CreateChatResultOk)
+          {
+            SetPendingNotice("Could not check +" + phone + ", please try again.");
+          }
+        }
+
+        if (createChatNotify->success && !phone.empty() &&
+            m_ChatInfos[profileId].count(createChatNotify->chatInfo.id))
+        {
+          // number resolved to an existing chat, keep its chat info
+          const std::string chatId = createChatNotify->chatInfo.id;
+          LOG_TRACE("chat exists %s", chatId.c_str());
+          OpenCreateChat(std::make_pair(profileId, chatId));
+          ApplyLinkText(profileId, chatId, linkText);
+        }
+        else if (createChatNotify->success)
         {
           const ChatInfo& chatInfo = createChatNotify->chatInfo;
           LOG_TRACE("chat created %s", chatInfo.id.c_str());
@@ -2680,6 +2760,7 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
           SortChats();
           OnCurrentChatChanged();
           SetSelectMessageActive(false);
+          ApplyLinkText(profileId, chatInfo.id, linkText);
         }
       }
       break;
@@ -6533,6 +6614,13 @@ void UiModel::OnKeySelectContact()
   if (dialog.Run())
   {
     UiContactListItem selectedContact = dialog.GetSelectedContactItem();
+    if (!selectedContact.phone.empty())
+    {
+      std::unique_lock<owned_mutex> lock(m_ModelMutex);
+      GetImpl().OpenChatByPhone(GetImpl().GetDefaultProfileId(), selectedContact.phone, selectedContact.text);
+      return;
+    }
+
     std::string profileId = selectedContact.profileId;
     std::string userId = selectedContact.contactId;
     std::pair<std::string, std::string> newChat = std::make_pair(profileId, userId);
