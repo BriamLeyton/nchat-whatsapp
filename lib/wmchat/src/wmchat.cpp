@@ -698,6 +698,16 @@ void WmChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
       }
       break;
 
+    case GetAvatarRequestType:
+      {
+        std::shared_ptr<GetAvatarRequest> getAvatarRequest =
+          std::static_pointer_cast<GetAvatarRequest>(p_RequestMessage);
+        LOG_DEBUG("get avatar %s %d", getAvatarRequest->chatId.c_str(), getAvatarRequest->isFull);
+        CWmGetAvatar(m_ConnId, const_cast<char*>(getAvatarRequest->chatId.c_str()),
+                     const_cast<char*>(getAvatarRequest->basePath.c_str()), getAvatarRequest->isFull);
+      }
+      break;
+
     default:
       LOG_DEBUG("unknown request %d", p_RequestMessage->GetMessageType());
       break;
@@ -1222,6 +1232,24 @@ void WmUpdateMuteNotify(int p_ConnId, char* p_ChatId, int p_IsMuted)
     std::shared_ptr<DeferNotifyRequest> deferNotifyRequest =
       std::make_shared<DeferNotifyRequest>();
     deferNotifyRequest->serviceMessage = updateMuteNotify;
+    instance->SendRequest(deferNotifyRequest);
+  }
+
+  free(p_ChatId);
+}
+
+void WmNewAvatarNotify(int p_ConnId, char* p_ChatId, int p_IsFull, int p_Result)
+{
+  WmChat* instance = WmChat::GetInstance(p_ConnId);
+  if (instance != nullptr)
+  {
+    std::shared_ptr<NewAvatarNotify> newAvatarNotify = std::make_shared<NewAvatarNotify>(instance->GetProfileId());
+    newAvatarNotify->chatId = std::string(p_ChatId);
+    newAvatarNotify->isFull = p_IsFull;
+    newAvatarNotify->result = p_Result;
+
+    std::shared_ptr<DeferNotifyRequest> deferNotifyRequest = std::make_shared<DeferNotifyRequest>();
+    deferNotifyRequest->serviceMessage = newAvatarNotify;
     instance->SendRequest(deferNotifyRequest);
   }
 

@@ -19,6 +19,7 @@
 
 #include <poll.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -292,7 +293,11 @@ bool UiImage::Prepare(const std::string& p_Path, int p_MaxCols, int p_MaxRows, U
   int cellH = 0;
   GetCellSize(cellW, cellH);
 
-  const std::string key = p_Path + "|" + std::to_string(p_MaxCols) + "x" + std::to_string(p_MaxRows) +
+  // file modification time in key, so a replaced file (e.g. new profile photo) is not served from cache
+  struct stat fileStat;
+  const int64_t mtime = (stat(p_Path.c_str(), &fileStat) == 0) ? (int64_t)fileStat.st_mtime : 0;
+  const std::string key = p_Path + "|" + std::to_string(mtime) + "|" +
+    std::to_string(p_MaxCols) + "x" + std::to_string(p_MaxRows) +
     "|" + std::to_string(cellW) + "x" + std::to_string(cellH) + (p_Upscale ? "|up" : "");
   auto cacheIt = s_Cache.find(key);
   if (cacheIt != s_Cache.end())

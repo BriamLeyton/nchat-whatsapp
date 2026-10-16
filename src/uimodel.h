@@ -34,6 +34,31 @@ enum ChatSection
   ChatSectionCount = 4,
 };
 
+// presence of contact, for chat banner colors
+enum PresenceType
+{
+  PresenceNone = 0,
+  PresenceTyping,
+  PresenceOnline,
+  PresenceAway,
+  PresenceSeen,
+};
+
+// chat banner shown on top of history (contact or group chat)
+struct ChatBanner
+{
+  bool isGroup = false;
+  std::string name;
+  std::string phone;
+  std::string presence;
+  int presenceType = PresenceNone;
+  bool isMuted = false;
+  int memberCount = 0;
+  int statusTotal = 0; // status updates of last 24 hours (contact)
+  int statusNew = 0;
+  std::string avatarPath; // empty if no photo
+};
+
 class UiModel
 {
 private:
@@ -150,6 +175,16 @@ private:
     int64_t GetLastMessageTime(const std::string& p_ProfileId, const std::string& p_ChatId);
     bool GetChatIsUnread(const std::string& p_ProfileId, const std::string& p_ChatId);
     std::string GetChatStatus(const std::string& p_ProfileId, const std::string& p_ChatId);
+    std::string GetChatPresence(const std::string& p_ProfileId, const std::string& p_ChatId, int& p_PresenceType);
+    bool IsBannerChat(const std::string& p_ProfileId, const std::string& p_ChatId);
+    bool GetChatBanner(const std::string& p_ProfileId, const std::string& p_ChatId, ChatBanner& p_ChatBanner);
+    std::string GetAvatarBasePath(const std::string& p_ProfileId, const std::string& p_ChatId);
+    void RequestAvatar(const std::string& p_ProfileId, const std::string& p_ChatId);
+    void OpenAvatar();
+    void UpdateStatusCounts(const std::string& p_ProfileId, const std::string& p_ContactId);
+    bool HasStatusUpdates(const std::string& p_ProfileId, const std::string& p_ContactId);
+    void SetStatusReturnChat(const std::pair<std::string, std::string>& p_Chat);
+    std::pair<std::string, std::string> TakeStatusReturnChat();
 
     std::wstring& GetEntryStr();
     int& GetEntryPos();
@@ -332,6 +367,12 @@ private:
     void WriteStatusSeen(const std::string& p_ProfileId);
     std::unordered_map<std::string, StatusSeen> m_StatusSeen;
 
+    // chat banner: avatars requested this session, pending avatar open, status counts per contact
+    std::unordered_map<std::string, std::unordered_set<std::string>> m_AvatarRequested;
+    std::pair<std::string, std::string> m_AvatarOpenChat;
+    std::unordered_map<std::string, std::unordered_map<std::string, std::pair<int, int>>> m_StatusCounts;
+    std::pair<std::string, std::string> m_StatusReturnChat; // chat to return to from status filter (Alt-u)
+
     // status prefetch queue (one download at a time), entries are profile id, chat id, msg id
     std::deque<std::tuple<std::string, std::string, std::string>> m_StatusPrefetchQueue;
     std::unordered_set<std::string> m_StatusPrefetchQueued;
@@ -432,6 +473,7 @@ public:
   bool GetSectionCollapsedLocked(int p_Section);
   bool IsChatHiddenLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
   std::string GetChatStatusLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+  bool GetChatBannerLocked(const std::string& p_ProfileId, const std::string& p_ChatId, ChatBanner& p_ChatBanner);
   std::vector<std::pair<std::string, std::string>>& GetChatVecLocked();
   std::string GetContactListNameLocked(const std::string& p_ProfileId, const std::string& p_ChatId, bool p_AllowId,
                                        bool p_AllowAlias);

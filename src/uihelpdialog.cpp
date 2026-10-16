@@ -78,11 +78,11 @@ namespace
           { "react", "React" },
           { "forward_msg", "Forward message" },
           { "jump_quoted", "Jump to quoted message" },
-          { "open", "Open attachment" },
+          { "open", "Open attachment (profile photo if none selected)" },
           { "save", "Save attachment" },
           { "open_link", "Open link" },
           { "open_msg", "View in external viewer" },
-          { "status_filter", "Filter status by contact" },
+          { "status_filter", "Filter status by contact / contact status" },
         },
       },
       {

@@ -36,6 +36,11 @@ void UiColorConfig::Init()
   // WhatsApp tick colors, terminals unable to set custom colors get nearest palette color (or blue/gray)
   const std::string defaultReceiptColor = (COLORS > 8) ? "0x8696a0" : "";
   const std::string defaultReceiptReadColor = (COLORS > 8) ? "0x53bdeb" : "blue";
+  // chat banner, WhatsApp header background and presence colors
+  const std::string defaultBannerBgColor = (COLORS > 8) ? "0x202c33" : "";
+  const std::string defaultOnlineColor = (COLORS > 8) ? "0x25d366" : "green";
+  const std::string defaultAwayColor = (COLORS > 8) ? "0xe9c46a" : "yellow";
+  const std::string defaultSeenColor = (COLORS > 8) ? "0x8696a0" : "";
   const std::map<std::string, std::string> defaultConfig =
   {
     { "top_attr", "reverse" },
@@ -96,6 +101,18 @@ void UiColorConfig::Init()
     { "history_receipt_delivered_color_fg", defaultReceiptColor },
     { "history_receipt_read_color_bg", "" },
     { "history_receipt_read_color_fg", defaultReceiptReadColor },
+
+    { "history_banner_attr", "" },
+    { "history_banner_color_bg", defaultBannerBgColor },
+    { "history_banner_color_fg", "" },
+    { "history_banner_typing_color_bg", defaultBannerBgColor },
+    { "history_banner_typing_color_fg", defaultOnlineColor },
+    { "history_banner_online_color_bg", defaultBannerBgColor },
+    { "history_banner_online_color_fg", defaultOnlineColor },
+    { "history_banner_away_color_bg", defaultBannerBgColor },
+    { "history_banner_away_color_fg", defaultAwayColor },
+    { "history_banner_seen_color_bg", defaultBannerBgColor },
+    { "history_banner_seen_color_fg", defaultSeenColor },
 
     { "dialog_attr", "" },
     { "dialog_attr_selected", "reverse" },

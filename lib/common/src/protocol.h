@@ -99,6 +99,7 @@ enum MessageType
   ReinitRequestType,
   FindMessageRequestType,
   GetGroupMembersRequestType,
+  GetAvatarRequestType,
   // Service messages
   ServiceMessageType,
   NewContactsNotifyType,
@@ -127,6 +128,7 @@ enum MessageType
   NewGroupMembersNotifyType,
   UpdateArchivedNotifyType,
   MoveChatNotifyType,
+  NewAvatarNotifyType,
 };
 
 struct ContactInfo
@@ -477,6 +479,16 @@ public:
   std::string chatId;
 };
 
+// Profile photo of chat, stored as <basePath>.jpg (preview, id in <basePath>.id) or <basePath>.full.jpg
+class GetAvatarRequest : public RequestMessage
+{
+public:
+  virtual MessageType GetMessageType() const { return GetAvatarRequestType; }
+  std::string chatId;
+  std::string basePath;
+  bool isFull = false;
+};
+
 // Service messages
 class ServiceMessage
 {
@@ -669,6 +681,24 @@ public:
   virtual MessageType GetMessageType() const { return DeleteChatNotifyType; }
   bool success = false;
   std::string chatId;
+};
+
+enum AvatarResult
+{
+  AvatarResultError = -1, // not stored, may be retried
+  AvatarResultOk = 0, // stored or unchanged
+  AvatarResultNone = 1, // no photo, or hidden
+};
+
+class NewAvatarNotify : public ServiceMessage
+{
+public:
+  explicit NewAvatarNotify(const std::string& p_ProfileId)
+    : ServiceMessage(p_ProfileId) { }
+  virtual MessageType GetMessageType() const { return NewAvatarNotifyType; }
+  std::string chatId;
+  bool isFull = false;
+  int result = AvatarResultError;
 };
 
 class MoveChatNotify : public ServiceMessage

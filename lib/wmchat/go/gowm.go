@@ -17,6 +17,7 @@ import (
 	"io"
 	"math"
 	"mime"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -3507,6 +3508,135 @@ func WmSendMessage(connId int, chatId string, text string, quotedId string, quot
 	}
 
 	return 0
+}
+
+// avatar results, matching AvatarResult in protocol.h
+const (
+	avatarResultError = -1
+	avatarResultOk    = 0
+	avatarResultNone  = 1
+)
+
+// Get profile photo of chat (preview or full size) in background, stored at basePath.jpg (preview, with
+// photo id in basePath.id) or basePath.full.jpg, the ui is notified when done
+func WmGetAvatar(connId int, chatId string, basePath string, isFull int) int {
+
+	LOG_TRACE("get avatar " + strconv.Itoa(connId) + ", " + chatId + ", " + strconv.Itoa(isFull))
+
+	// sanity check arg
+	if connId == -1 {
+		LOG_WARNING("invalid connId")
+		return -1
+	}
+
+	// get client
+	var client *whatsmeow.Client = GetClient(connId)
+	if client == nil {
+		LOG_WARNING("client is nil")
+		return -1
+	}
+
+	// parse chat JID
+	chatJid, jidErr := types.ParseJID(chatId)
+	if jidErr != nil {
+		LOG_WARNING(fmt.Sprintf("jid err %#v", jidErr))
+		return -1
+	}
+
+	go func() {
+		result := GetAvatar(client, chatJid, basePath, isFull != 0)
+		CWmNewAvatarNotify(connId, chatId, isFull, result)
+	}()
+
+	return 0
+}
+
+func GetAvatar(client *whatsmeow.Client, chatJid types.JID, basePath string, isFull bool) int {
+	idPath := basePath + ".id"
+	fullPath := basePath + ".full.jpg"
+	photoPath := basePath + ".jpg"
+	if isFull {
+		photoPath = fullPath
+	}
+
+	// preview is only downloaded when photo id changed
+	existingId := ""
+	if !isFull {
+		if idData, readErr := os.ReadFile(idPath); readErr == nil {
+			existingId = strings.TrimSpace(string(idData))
+			if existingId == "none" {
+				existingId = ""
+			}
+		}
+	}
+
+	params := &whatsmeow.GetProfilePictureParams{Preview: !isFull, ExistingID: existingId}
+	info, infoErr := client.GetProfilePictureInfo(context.Background(), chatJid, params)
+	if errors.Is(infoErr, whatsmeow.ErrProfilePictureUnauthorized) || errors.Is(infoErr, whatsmeow.ErrProfilePictureNotSet) {
+		LOG_DEBUG("avatar none " + chatJid.String())
+		_ = os.Remove(basePath + ".jpg")
+		_ = os.Remove(fullPath)
+		if writeErr := WriteFileAtomic(idPath, []byte("none")); writeErr != nil {
+			LOG_WARNING(fmt.Sprintf("avatar write err %#v", writeErr))
+			return avatarResultError
+		}
+		return avatarResultNone
+	} else if infoErr != nil {
+		LOG_WARNING(fmt.Sprintf("avatar info err %s %#v", chatJid.String(), infoErr))
+		return avatarResultError
+	} else if info == nil {
+		// unchanged, refresh check time
+		LOG_DEBUG("avatar unchanged " + chatJid.String())
+		now := time.Now()
+		_ = os.Chtimes(idPath, now, now)
+		return avatarResultOk
+	}
+
+	httpClient := http.Client{Timeout: 10 * time.Second}
+	resp, getErr := httpClient.Get(info.URL)
+	if getErr != nil {
+		LOG_WARNING(fmt.Sprintf("avatar get err %s %#v", chatJid.String(), getErr))
+		return avatarResultError
+	}
+	defer resp.Body.Close()
+
+	data, bodyErr := io.ReadAll(io.LimitReader(resp.Body, 16*1024*1024))
+	if (bodyErr != nil) || (resp.StatusCode != http.StatusOK) || (len(data) == 0) {
+		LOG_WARNING(fmt.Sprintf("avatar body err %s %d %#v", chatJid.String(), resp.StatusCode, bodyErr))
+		return avatarResultError
+	}
+
+	if writeErr := WriteFileAtomic(photoPath, data); writeErr != nil {
+		LOG_WARNING(fmt.Sprintf("avatar write err %#v", writeErr))
+		return avatarResultError
+	}
+
+	if !isFull {
+		// new photo, full size copy is stale
+		if info.ID != existingId {
+			_ = os.Remove(fullPath)
+		}
+		if writeErr := WriteFileAtomic(idPath, []byte(info.ID)); writeErr != nil {
+			LOG_WARNING(fmt.Sprintf("avatar write err %#v", writeErr))
+			return avatarResultError
+		}
+	}
+
+	LOG_DEBUG("avatar stored " + chatJid.String() + " " + info.ID)
+	return avatarResultOk
+}
+
+func WriteFileAtomic(path string, data []byte) error {
+	if mkdirErr := os.MkdirAll(filepath.Dir(path), 0700); mkdirErr != nil {
+		return mkdirErr
+	}
+
+	tmpPath := path + ".tmp"
+	if writeErr := os.WriteFile(tmpPath, data, 0600); writeErr != nil {
+		return writeErr
+	}
+
+	return os.Rename(tmpPath, path)
 }
 
 func WmGetGroupMembers(connId int, chatId string) int {

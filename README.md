@@ -477,6 +477,7 @@ This configuration file holds general user interface settings. Default content:
     auto_compose_history_count=25
     auto_select_chat_timeout_sec=1
     call_command=
+    chat_banner_enabled=1
     chat_picker_sorted_alphabetically=0
     confirm_archiving=1
     confirm_deletion=1
@@ -611,6 +612,21 @@ are used:
 Linux: `xdg-open >/dev/null 2>&1 'tel://%1' &`
 
 macOS: `open 'tel://%1' &`
+
+### chat_banner_enabled
+
+Specifies whether to show a banner on top of contact and group chats, with
+profile photo (inline, in terminals supporting the kitty graphics protocol),
+name and phone number, presence (colored by typing, online, away, last seen)
+and number of status updates of the last 24 hours (contacts), or number of
+participants (groups). In a contact chat, Alt-u (`status_filter`) shows the
+status updates of the contact, and Alt-u again returns to the chat. `open`
+without a selected message opens the profile photo in full size.
+
+Profile photos are requested from WhatsApp when opening a chat, at most once
+per 24 hours per chat (unchanged photos are not downloaded again), and stored
+in `avatars` in the profile directory. The full size photo is only requested
+when opened.
 
 ### chat_picker_sorted_alphabetically
 
@@ -846,7 +862,9 @@ Updates cannot be pinned or archived, and `status_broadcast=0` hides the row.
 
 In Status Updates, Alt-u filters by the contact of the selected status, or
 opens a dialog of contacts with status updates when no status is selected.
-Alt-u again, or leaving Status Updates, removes the filter.
+Alt-u again, or leaving Status Updates, removes the filter. In a contact chat,
+Alt-u shows the status updates of the contact, and Alt-u again returns to the
+chat.
 
 Status updates are not marked as viewed when shown in the list, only when
 opened with `open` (attachment) or `open_msg` (text) on the selected status,
@@ -1181,6 +1199,17 @@ This configuration file holds user interface color settings. Default content:
     help_attr=reverse
     help_color_bg=black
     help_color_fg=white
+    history_banner_attr=
+    history_banner_away_color_bg=0x202c33
+    history_banner_away_color_fg=0xe9c46a
+    history_banner_color_bg=0x202c33
+    history_banner_color_fg=
+    history_banner_online_color_bg=0x202c33
+    history_banner_online_color_fg=0x25d366
+    history_banner_seen_color_bg=0x202c33
+    history_banner_seen_color_fg=0x8696a0
+    history_banner_typing_color_bg=0x202c33
+    history_banner_typing_color_fg=0x25d366
     history_name_attr=bold
     history_name_attr_selected=reverse
     history_name_recv_color_bg=

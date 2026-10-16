@@ -125,6 +125,7 @@ void WmDeleteChatNotify(int p_ConnId, char* p_ChatId);
 void WmDeleteMessageNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, int p_IsOutgoing);
 void WmUpdateMuteNotify(int p_ConnId, char* p_ChatId, int p_IsMuted);
 void WmUpdateArchivedNotify(int p_ConnId, char* p_ChatId, int p_IsArchived);
+void WmNewAvatarNotify(int p_ConnId, char* p_ChatId, int p_IsFull, int p_Result);
 void WmUpdatePinNotify(int p_ConnId, char* p_ChatId, int p_IsPinned, int p_TimePinned);
 void WmReinit(int p_ConnId);
 void WmSetProtocolUiControl(int p_ConnId, int p_IsTakeControl);

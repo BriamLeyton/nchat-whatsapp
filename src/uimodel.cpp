@@ -1114,6 +1114,11 @@ void UiModel::Impl::OnStatusUpdate(uint32_t p_Status)
   if (!m_Running) return;
 
   const bool isOnline = (p_Status & Status::FlagOnline);
+  if (isOnline)
+  {
+    // chat banner photo of chat opened before being online
+    RequestAvatar(m_CurrentChat.first, m_CurrentChat.second);
+  }
 
   // Ignore first transition to online status
   static bool wasEverOnline = false;
@@ -1419,6 +1424,152 @@ void UiModel::Impl::WriteStatusSeen(const std::string& p_ProfileId)
   FileUtil::Move(tmpPath, path);
 }
 
+bool UiModel::Impl::IsBannerChat(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  static const bool chatBannerEnabled = UiConfig::GetBool("chat_banner_enabled");
+  return chatBannerEnabled && !p_ProfileId.empty() && !p_ChatId.empty() && !IsStatusChat(p_ChatId);
+}
+
+bool UiModel::Impl::GetChatBanner(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                  ChatBanner& p_ChatBanner)
+{
+  if (!IsBannerChat(p_ProfileId, p_ChatId)) return false;
+
+  p_ChatBanner = ChatBanner();
+  p_ChatBanner.isGroup = GetChatInfoIsGroup(p_ProfileId, p_ChatId);
+  p_ChatBanner.name = GetContactListName(p_ProfileId, p_ChatId, true /*p_AllowId*/, true /*p_AllowAlias*/);
+  p_ChatBanner.isMuted = m_ChatInfos[p_ProfileId][p_ChatId].isMuted;
+  if (p_ChatBanner.isGroup)
+  {
+    p_ChatBanner.memberCount = (int)GetGroupMembers(p_ProfileId, p_ChatId).size();
+  }
+  else
+  {
+    p_ChatBanner.phone = GetContactPhone(p_ProfileId, p_ChatId);
+    p_ChatBanner.presence = GetChatPresence(p_ProfileId, p_ChatId, p_ChatBanner.presenceType);
+    auto countIt = m_StatusCounts[p_ProfileId].find(p_ChatId);
+    if (countIt != m_StatusCounts[p_ProfileId].end())
+    {
+      p_ChatBanner.statusTotal = countIt->second.first;
+      p_ChatBanner.statusNew = countIt->second.second;
+    }
+  }
+
+  const std::string avatarPath = GetAvatarBasePath(p_ProfileId, p_ChatId) + ".jpg";
+  if (FileUtil::Exists(avatarPath))
+  {
+    p_ChatBanner.avatarPath = avatarPath;
+  }
+
+  return true;
+}
+
+std::string UiModel::Impl::GetAvatarBasePath(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  return FileUtil::GetApplicationDir() + "/profiles/" + p_ProfileId + "/avatars/" + p_ChatId;
+}
+
+void UiModel::Impl::RequestAvatar(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  if (!IsBannerChat(p_ProfileId, p_ChatId)) return;
+
+  // requested at most once per session, and only when online (offline requests would only fail)
+  if (m_AvatarRequested[p_ProfileId].count(p_ChatId) > 0) return;
+
+  if (!(Status::Get(Status::FlagOnline) & Status::FlagOnline)) return;
+
+  m_AvatarRequested[p_ProfileId].insert(p_ChatId);
+
+  // checked against WhatsApp at most once per 24 hours, by modification time of photo id file
+  static const time_t checkIntervalSec = 24 * 60 * 60;
+  const std::string basePath = GetAvatarBasePath(p_ProfileId, p_ChatId);
+  struct stat idStat;
+  if ((stat((basePath + ".id").c_str(), &idStat) == 0) && ((time(nullptr) - idStat.st_mtime) < checkIntervalSec))
+  {
+    return;
+  }
+
+  std::shared_ptr<GetAvatarRequest> getAvatarRequest = std::make_shared<GetAvatarRequest>();
+  getAvatarRequest->chatId = p_ChatId;
+  getAvatarRequest->basePath = basePath;
+  SendProtocolRequest(p_ProfileId, getAvatarRequest);
+}
+
+void UiModel::Impl::OpenAvatar()
+{
+  const std::string profileId = m_CurrentChat.first;
+  const std::string chatId = m_CurrentChat.second;
+  if (!IsBannerChat(profileId, chatId)) return;
+
+  const std::string basePath = GetAvatarBasePath(profileId, chatId);
+  if (FileUtil::Exists(basePath + ".full.jpg"))
+  {
+    OnKeyOpenAttachment(basePath + ".full.jpg");
+    return;
+  }
+
+  if (!FileUtil::Exists(basePath + ".jpg"))
+  {
+    SetPendingNotice("No profile photo.");
+    return;
+  }
+
+  // full size photo is fetched on first open, and opened when stored
+  LOG_DEBUG("avatar open request %s", chatId.c_str());
+  m_AvatarOpenChat = m_CurrentChat;
+  std::shared_ptr<GetAvatarRequest> getAvatarRequest = std::make_shared<GetAvatarRequest>();
+  getAvatarRequest->chatId = chatId;
+  getAvatarRequest->basePath = basePath;
+  getAvatarRequest->isFull = true;
+  SendProtocolRequest(profileId, getAvatarRequest);
+}
+
+void UiModel::Impl::UpdateStatusCounts(const std::string& p_ProfileId, const std::string& p_ContactId)
+{
+  if (!IsBannerChat(p_ProfileId, p_ContactId) || GetChatInfoIsGroup(p_ProfileId, p_ContactId)) return;
+
+  // status updates of last 24 hours from contact, counted from cache (nothing downloaded)
+  static const std::string statusChatId = "status@broadcast";
+  static const int fetchLimit = 50;
+  const std::vector<ChatMessage> statuses =
+    MessageCache::FetchSenderMessagesSync(p_ProfileId, statusChatId, p_ContactId,
+                                          std::numeric_limits<int64_t>::max(), fetchLimit);
+  const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[p_ProfileId][statusChatId];
+  int total = 0;
+  int countNew = 0;
+  for (const auto& status : statuses)
+  {
+    if (status.isOutgoing || IsExpiredStatus(statusChatId, status)) continue;
+
+    // prefer loaded message, which has the latest read state
+    auto mit = messages.find(status.id);
+    const ChatMessage& current = (mit != messages.end()) ? mit->second : status;
+    ++total;
+    countNew += IsStatusNew(p_ProfileId, statusChatId, current) ? 1 : 0;
+  }
+
+  m_StatusCounts[p_ProfileId][p_ContactId] = std::make_pair(total, countNew);
+}
+
+bool UiModel::Impl::HasStatusUpdates(const std::string& p_ProfileId, const std::string& p_ContactId)
+{
+  static const std::string statusChatId = "status@broadcast";
+  return !MessageCache::FetchSenderMessagesSync(p_ProfileId, statusChatId, p_ContactId,
+                                                std::numeric_limits<int64_t>::max(), 1).empty();
+}
+
+void UiModel::Impl::SetStatusReturnChat(const std::pair<std::string, std::string>& p_Chat)
+{
+  m_StatusReturnChat = p_Chat;
+}
+
+std::pair<std::string, std::string> UiModel::Impl::TakeStatusReturnChat()
+{
+  std::pair<std::string, std::string> chat = m_StatusReturnChat;
+  m_StatusReturnChat = std::pair<std::string, std::string>();
+  return chat;
+}
+
 void UiModel::Impl::OnKeyOpenMsg()
 {
   AnyUserKeyInput();
@@ -1526,7 +1677,13 @@ void UiModel::Impl::OnKeyOpenAttachment(std::string p_FilePath /*= std::string()
   AnyUserKeyInput();
   if (p_FilePath.empty())
   {
-    // user-triggered call
+    // user-triggered call, without selected message it opens the chat profile photo
+    if (!GetSelectMessageActive())
+    {
+      OpenAvatar();
+      return;
+    }
+
     MarkStatusOpened();
     if (!GetMessageAttachmentPath(p_FilePath, DownloadFileActionOpen)) return;
   }
@@ -2195,12 +2352,21 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
 
           if (IsStatusChat(chatId))
           {
+            bool currentContactStatus = false;
             for (const auto& chatMessage : chatMessages)
             {
               QueueStatusPrefetch(profileId, chatId, chatMessage.id);
+              currentContactStatus = currentContactStatus || IsCurrentChat(profileId, chatMessage.senderId);
             }
 
             ProcessStatusPrefetch();
+
+            // new status update of contact in current chat, refresh banner
+            if (currentContactStatus && !newMessagesNotify->cached)
+            {
+              UpdateStatusCounts(profileId, m_CurrentChat.second);
+              UpdateHistory();
+            }
           }
 
           const std::pair<std::string, std::string>& nextChat = GetNextChat();
@@ -2464,6 +2630,10 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
           m_UsersTyping[profileId][chatId].erase(userId);
         }
         UpdateStatus();
+        if (IsCurrentChat(profileId, chatId) && IsBannerChat(profileId, chatId))
+        {
+          UpdateHistory(); // banner presence
+        }
       }
       break;
 
@@ -2482,6 +2652,10 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
           m_UserTimeSeen[profileId][userId] = timeSeen;
         }
         UpdateStatus();
+        if (IsCurrentChat(profileId, userId) && IsBannerChat(profileId, userId))
+        {
+          UpdateHistory(); // banner presence
+        }
       }
       break;
 
@@ -2545,6 +2719,40 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
           {
             SortChats();
             OnCurrentChatChanged();
+          }
+        }
+      }
+      break;
+
+    case NewAvatarNotifyType:
+      {
+        std::shared_ptr<NewAvatarNotify> newAvatarNotify =
+          std::static_pointer_cast<NewAvatarNotify>(p_ServiceMessage);
+        const std::string& chatId = newAvatarNotify->chatId;
+        LOG_DEBUG("avatar notify %s full %d result %d", chatId.c_str(), newAvatarNotify->isFull,
+                  newAvatarNotify->result);
+        if (!newAvatarNotify->isFull)
+        {
+          if (IsCurrentChat(profileId, chatId))
+          {
+            UpdateHistory();
+          }
+        }
+        else if ((m_AvatarOpenChat == std::make_pair(profileId, chatId)) && IsCurrentChat(profileId, chatId))
+        {
+          m_AvatarOpenChat = std::pair<std::string, std::string>();
+          if (newAvatarNotify->result == AvatarResultOk)
+          {
+            OnKeyOpenAttachment(GetAvatarBasePath(profileId, chatId) + ".full.jpg");
+          }
+          else if (newAvatarNotify->result == AvatarResultNone)
+          {
+            SetPendingNotice("No profile photo.");
+            UpdateHistory();
+          }
+          else
+          {
+            SetPendingNotice("Profile photo download failed, please try again.");
           }
         }
       }
@@ -2749,6 +2957,10 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
         }
         m_GroupMembers[profileId][chatId] = memberIds;
         m_GroupMembersUpdateTime = TimeUtil::GetCurrentTimeMSec();
+        if (IsCurrentChat(profileId, chatId))
+        {
+          UpdateHistory(); // banner member count
+        }
       }
       break;
 
@@ -3179,15 +3391,17 @@ bool UiModel::Impl::GetChatIsUnread(const std::string& p_ProfileId, const std::s
   return indicateUnread; // @todo: handle isUnreadMention
 }
 
-std::string UiModel::Impl::GetChatStatus(const std::string& p_ProfileId, const std::string& p_ChatId)
+std::string UiModel::Impl::GetChatPresence(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                           int& p_PresenceType)
 {
+  p_PresenceType = PresenceNone;
   std::string chatStatus;
   const std::set<std::string>& usersTyping = m_UsersTyping[p_ProfileId][p_ChatId];
   const ContactInfo& contactInfo = m_ContactInfos[p_ProfileId][p_ChatId];
-  const ChatInfo& chatInfo = m_ChatInfos[p_ProfileId][p_ChatId];
 
   if (!usersTyping.empty())
   {
+    p_PresenceType = PresenceTyping;
     if (usersTyping.size() > 1)
     {
       std::vector<std::string> userIds = ToVector(usersTyping);
@@ -3218,6 +3432,7 @@ std::string UiModel::Impl::GetChatStatus(const std::string& p_ProfileId, const s
   {
     if (m_UserOnline[p_ProfileId][p_ChatId])
     {
+      p_PresenceType = PresenceOnline;
       chatStatus = "online";
     }
     else
@@ -3226,18 +3441,22 @@ std::string UiModel::Impl::GetChatStatus(const std::string& p_ProfileId, const s
       switch (timeSeen)
       {
         case TimeSeenNone:
+          p_PresenceType = PresenceAway;
           chatStatus = "away";
           break;
 
         case TimeSeenLastMonth:
+          p_PresenceType = PresenceSeen;
           chatStatus = "seen last month";
           break;
 
         case TimeSeenLastWeek:
+          p_PresenceType = PresenceSeen;
           chatStatus = "seen last week";
           break;
 
         default:
+          p_PresenceType = PresenceSeen;
           chatStatus = "seen " + TimeUtil::GetTimeString(timeSeen, false /* p_IsExport */);
           break;
       }
@@ -3247,6 +3466,15 @@ std::string UiModel::Impl::GetChatStatus(const std::string& p_ProfileId, const s
   {
     chatStatus = "";
   }
+
+  return chatStatus;
+}
+
+std::string UiModel::Impl::GetChatStatus(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  const ChatInfo& chatInfo = m_ChatInfos[p_ProfileId][p_ChatId];
+  int presenceType = PresenceNone;
+  std::string chatStatus = GetChatPresence(p_ProfileId, p_ChatId, presenceType);
 
   if (chatInfo.isMuted)
   {
@@ -3294,6 +3522,26 @@ void UiModel::Impl::OnCurrentChatChanged()
   {
     // chat opened by other means than next/prev (e.g. goto, unread, contact), expand its section
     SetSectionCollapsed(GetChatSection(m_CurrentChat.first, m_CurrentChat.second), false);
+  }
+
+  // leaving status updates other than by Alt-u forgets chat to return to
+  if (!IsStatusChat(m_CurrentChat.second))
+  {
+    m_StatusReturnChat = std::pair<std::string, std::string>();
+  }
+
+  // chat banner data: photo, group members, status updates of contact
+  if (IsBannerChat(m_CurrentChat.first, m_CurrentChat.second))
+  {
+    RequestAvatar(m_CurrentChat.first, m_CurrentChat.second);
+    if (GetChatInfoIsGroup(m_CurrentChat.first, m_CurrentChat.second))
+    {
+      RequestGroupMembers(m_CurrentChat.first, m_CurrentChat.second);
+    }
+    else
+    {
+      UpdateStatusCounts(m_CurrentChat.first, m_CurrentChat.second);
+    }
   }
 
   SetHistoryInteraction(false);
@@ -5934,6 +6182,13 @@ std::string UiModel::GetChatStatusLocked(const std::string& p_ProfileId, const s
   return GetImpl().GetChatStatus(p_ProfileId, p_ChatId);
 }
 
+bool UiModel::GetChatBannerLocked(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                  ChatBanner& p_ChatBanner)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().GetChatBanner(p_ProfileId, p_ChatId, p_ChatBanner);
+}
+
 std::vector<std::pair<std::string, std::string>>& UiModel::GetChatVecLocked()
 {
   nc_assert(m_ModelMutex.owns_lock());
@@ -6301,12 +6556,37 @@ void UiModel::OnKeyStatusFilter()
 
     profileId = GetImpl().GetCurrentChat().first;
     chatId = GetImpl().GetCurrentChat().second;
-    if (!GetImpl().IsStatusChat(chatId)) return;
+    if (!GetImpl().IsStatusChat(chatId))
+    {
+      // in contact chat, show status updates of contact (Alt-u again returns)
+      if (GetImpl().GetChatInfoIsGroup(profileId, chatId)) return;
 
-    // same command clears an active filter
+      if (!GetImpl().HasStatusUpdates(profileId, chatId))
+      {
+        GetImpl().SetPendingNotice("No status updates from " + GetImpl().GetContactName(profileId, chatId) + ".");
+        return;
+      }
+
+      static const std::string statusChatId = "status@broadcast";
+      const std::pair<std::string, std::string> contactChat(profileId, chatId);
+      GetImpl().GotoChat(std::make_pair(profileId, statusChatId));
+      if (!GetImpl().IsStatusChat(GetImpl().GetCurrentChat().second)) return;
+
+      GetImpl().SetStatusReturnChat(contactChat);
+      GetImpl().SetStatusFilter(chatId);
+      return;
+    }
+
+    // same command clears an active filter, returning to contact chat if opened from there
     if (!GetImpl().GetStatusFilterSenderId().empty())
     {
+      const std::pair<std::string, std::string> returnChat = GetImpl().TakeStatusReturnChat();
       GetImpl().ClearStatusFilter();
+      if (!returnChat.second.empty())
+      {
+        GetImpl().GotoChat(returnChat);
+      }
+
       return;
     }
 

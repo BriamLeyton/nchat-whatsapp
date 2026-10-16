@@ -17,6 +17,7 @@
 #include "timeutil.h"
 #include "uicolorconfig.h"
 #include "uiconfig.h"
+#include "uihelpview.h"
 #include "uiimage.h"
 #include "uimodel.h"
 
@@ -92,6 +93,13 @@ void UiHistoryView::Draw()
   static const bool inlineImagesEnabled = UiImage::IsEnabled();
   static const int inlineImageMaxHeight = std::max(1, UiConfig::GetNum("inline_image_max_height"));
   std::vector<UiImagePlacement> imagePlacements;
+
+  // Chat banner on top rows (contact or group), messages are drawn below it
+  static const int bannerRows = 3;
+  ChatBanner chatBanner;
+  const bool hasBanner = m_Model->GetChatBannerLocked(currentChat.first, currentChat.second, chatBanner) &&
+    (m_PaddedH > (bannerRows * 3));
+  const int topY = hasBanner ? bannerRows : 0;
   int winBegY = 0;
   int winBegX = 0;
   getbegyx(m_PaddedWin, winBegY, winBegX);
@@ -534,7 +542,7 @@ void UiHistoryView::Draw()
         }
       }
 
-      const int maxMessageLines = (m_PaddedH - 1);
+      const int maxMessageLines = (m_PaddedH - topY - 1);
       if (firstMessage && ((int)wlines.size() > maxMessageLines))
       {
         // drop inline image if it does not fit, keeping the attachment line
@@ -599,7 +607,7 @@ void UiHistoryView::Draw()
 
         wattroff(m_PaddedWin, lineAttribute);
 
-        if (--y < 0) break;
+        if (--y < topY) break;
       }
 
       if (imageVisibleRows > 0)
@@ -613,7 +621,7 @@ void UiHistoryView::Draw()
         imagePlacements.push_back(placement);
       }
 
-      if (y < 0) break;
+      if (y < topY) break;
 
       int attributeName = isSelectedMessage ? attributeNameSelected : attributeNameNormal;
       int colorPairName = [&]()
@@ -757,9 +765,9 @@ void UiHistoryView::Draw()
       ++m_HistoryShowCount;
       selectedShown = selectedShown || isSelectedMessage;
 
-      if (--y < 0) break;
+      if (--y < topY) break;
 
-      if (--y < 0) break;
+      if (--y < topY) break;
 
       firstMessage = false;
     }
@@ -784,6 +792,11 @@ void UiHistoryView::Draw()
 
   drawMessages(viewOffset, true /* p_Final */);
 
+  if (hasBanner)
+  {
+    DrawBanner(chatBanner, bannerRows, winBegY, winBegX, imagePlacements);
+  }
+
   wrefresh(m_PaddedWin);
 
   if (inlineImagesEnabled)
@@ -795,4 +808,134 @@ void UiHistoryView::Draw()
 int UiHistoryView::GetHistoryShowCount()
 {
   return m_HistoryShowCount;
+}
+
+void UiHistoryView::DrawBanner(const ChatBanner& p_ChatBanner, int p_Rows, int p_WinBegY, int p_WinBegX,
+                               std::vector<UiImagePlacement>& p_ImagePlacements)
+{
+  static const int colorPairBanner = UiColorConfig::GetColorPair("history_banner_color");
+  static const int attributeBanner = UiColorConfig::GetAttribute("history_banner_attr");
+  static const int colorPairTyping = UiColorConfig::GetColorPair("history_banner_typing_color");
+  static const int colorPairOnline = UiColorConfig::GetColorPair("history_banner_online_color");
+  static const int colorPairAway = UiColorConfig::GetColorPair("history_banner_away_color");
+  static const int colorPairSeen = UiColorConfig::GetColorPair("history_banner_seen_color");
+  static const bool inlineImagesEnabled = UiImage::IsEnabled();
+  const bool emojiEnabled = m_Model->GetEmojiEnabledLocked();
+
+  // background
+  wattron(m_PaddedWin, attributeBanner | colorPairBanner);
+  for (int y = 0; y < p_Rows; ++y)
+  {
+    const std::wstring wblank(m_PaddedW, L' ');
+    mvwaddnwstr(m_PaddedWin, y, 0, wblank.c_str(), wblank.size());
+  }
+
+  wattroff(m_PaddedWin, attributeBanner | colorPairBanner);
+
+  // profile photo on the left, enlarged to banner height
+  int textX = 1;
+  static const int avatarMaxCols = 10;
+  UiImageInfo avatarInfo;
+  if (inlineImagesEnabled && !p_ChatBanner.avatarPath.empty() &&
+      UiImage::Prepare(p_ChatBanner.avatarPath, avatarMaxCols, p_Rows, avatarInfo, true /*p_Upscale*/))
+  {
+    UiImagePlacement placement;
+    placement.info = avatarInfo;
+    placement.screenY = p_WinBegY;
+    placement.screenX = p_WinBegX;
+    placement.skipRows = 0;
+    placement.visibleRows = std::min(avatarInfo.rows, p_Rows);
+    p_ImagePlacements.push_back(placement);
+    textX = avatarInfo.cols + 2;
+  }
+
+  // segments of text per row, each with own color
+  auto drawRow = [&](int p_Y, const std::vector<std::pair<std::string, int>>& p_Segments)
+  {
+    int x = textX;
+    for (const auto& segment : p_Segments)
+    {
+      if (x >= m_PaddedW) break;
+
+      std::string text = emojiEnabled ? segment.first : StrUtil::Textize(segment.first);
+      std::wstring wtext = StrUtil::ToWString(text);
+      const int remainW = m_PaddedW - x;
+      if (StrUtil::WStringWidth(wtext) > remainW)
+      {
+        wtext = StrUtil::TrimPadWString(wtext, remainW);
+      }
+
+      wattron(m_PaddedWin, segment.second);
+      mvwaddnwstr(m_PaddedWin, p_Y, x, wtext.c_str(), wtext.size());
+      wattroff(m_PaddedWin, segment.second);
+      x += StrUtil::WStringWidth(wtext);
+    }
+  };
+
+  const int attributeText = attributeBanner | colorPairBanner;
+  const int attributeSeen = attributeBanner | colorPairSeen;
+  static const std::string separator = " \xc2\xb7 ";
+  const std::string mutedSuffix = p_ChatBanner.isMuted ? "muted" : "";
+
+  // row 1: name and phone
+  std::vector<std::pair<std::string, int>> row1 = { { p_ChatBanner.name, attributeText | A_BOLD } };
+  if (!p_ChatBanner.isGroup && !p_ChatBanner.phone.empty())
+  {
+    std::string phone = p_ChatBanner.phone;
+    if (phone.front() != '+')
+    {
+      phone = "+" + phone;
+    }
+
+    row1.push_back({ separator + phone, attributeSeen });
+  }
+
+  drawRow(0, row1);
+
+  // row 2: presence (contact) or participants (group), and muted
+  std::vector<std::pair<std::string, int>> row2;
+  if (p_ChatBanner.isGroup)
+  {
+    if (p_ChatBanner.memberCount > 0)
+    {
+      row2.push_back({ std::to_string(p_ChatBanner.memberCount) + " participants", attributeText });
+    }
+  }
+  else if (!p_ChatBanner.presence.empty())
+  {
+    int colorPairPresence = colorPairSeen;
+    switch (p_ChatBanner.presenceType)
+    {
+      case PresenceTyping: colorPairPresence = colorPairTyping; break;
+      case PresenceOnline: colorPairPresence = colorPairOnline; break;
+      case PresenceAway: colorPairPresence = colorPairAway; break;
+      default: break;
+    }
+
+    row2.push_back({ p_ChatBanner.presence, attributeBanner | colorPairPresence });
+  }
+
+  if (!mutedSuffix.empty())
+  {
+    row2.push_back({ (row2.empty() ? "" : separator) + mutedSuffix, attributeSeen });
+  }
+
+  drawRow(1, row2);
+
+  // row 3: status updates of last 24 hours (contact)
+  if (!p_ChatBanner.isGroup && (p_ChatBanner.statusTotal > 0))
+  {
+    static const std::string statusNewIndicator = UiConfig::GetStr("status_new_indicator");
+    static const std::string statusKey = UiHelpView::GetKeyDisplay("status_filter");
+    const int count = (p_ChatBanner.statusNew > 0) ? p_ChatBanner.statusNew : p_ChatBanner.statusTotal;
+    std::string text = (p_ChatBanner.statusNew > 0) ? (statusNewIndicator + " " + std::to_string(count) + " new")
+                                                    : ("\xe2\x97\xaf " + std::to_string(count));
+    text += (count == 1) ? " status update" : " status updates";
+    if (!statusKey.empty())
+    {
+      text += separator + statusKey;
+    }
+
+    drawRow(2, { { text, (p_ChatBanner.statusNew > 0) ? (attributeBanner | colorPairOnline) : attributeSeen } });
+  }
 }
