@@ -24,6 +24,14 @@ struct MediaMeta
   uint32_t backgroundArgb = 0;
   bool hasTextColor = false;
   uint32_t textArgb = 0;
+  bool linkFetched = false; // link preview fetched from web page (also set if it failed)
+};
+
+struct LinkPreview
+{
+  std::string title;
+  std::string description;
+  std::string imageUrl; // absolute http(s) url, empty if not available
 };
 
 class MediaInfo
@@ -42,6 +50,19 @@ public:
   // in background (media_probe_command and file size), stored in the sidecar meta file (once per session).
   static void RequestProbe(const std::string& p_ProfileId, const std::string& p_MsgId, const std::string& p_FilePath);
 
+  // Request link preview of a message to be fetched in background from the web page (link_preview_command
+  // and link_thumbnail_command), stored in the sidecar files (once per message, once per url per session).
+  static void RequestLinkPreview(const std::string& p_ProfileId, const std::string& p_MsgId, const std::string& p_Url);
+
+  // Returns true if user id is a contact saved in address book (based on <profile>/saved_contacts).
+  static bool IsSavedContact(const std::string& p_ProfileId, const std::string& p_UserId);
+
+  // Returns first http(s) url in text, empty if none.
+  static std::string GetFirstUrl(const std::string& p_Text);
+
+  // Parse Open Graph / Twitter / html title and description, image url resolved against page url.
+  static LinkPreview ParseLinkPreview(const std::string& p_Html, const std::string& p_PageUrl);
+
   // Returns true (once) if a poster frame was generated or a probe completed since last call. Must be
   // called from the ui thread, as it applies probe results to cached metadata.
   static bool TakePosterUpdated();
@@ -51,4 +72,5 @@ public:
 
 private:
   static void Worker();
+  static void LinkWorker();
 };

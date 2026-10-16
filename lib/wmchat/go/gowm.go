@@ -1419,6 +1419,31 @@ func (handler *WmEventHandler) HandleLoggedOut() {
 	CWmReinit(connId)
 }
 
+// address book contact, as opposed to a public (push) name only
+func IsSavedContactInfo(contactInfo types.ContactInfo) bool {
+	return (len(contactInfo.FullName) > 0) || (len(contactInfo.FirstName) > 0)
+}
+
+// write ids of address book contacts, one per line, used by ui to limit link preview fetching
+func WriteSavedContacts(connId int, userIds []string) {
+	sort.Strings(userIds)
+	path := GetPath(connId) + "/saved_contacts"
+	tmpPath := path + ".tmp"
+	data := strings.Join(userIds, "\n")
+	if len(userIds) > 0 {
+		data += "\n"
+	}
+
+	if err := os.WriteFile(tmpPath, []byte(data), 0644); err != nil {
+		LOG_WARNING(fmt.Sprintf("write %s failed: %#v", tmpPath, err))
+		return
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		LOG_WARNING(fmt.Sprintf("rename %s failed: %#v", path, err))
+	}
+}
+
 func GetNameFromContactInfo(contactInfo types.ContactInfo) string {
 	if len(contactInfo.FullName) > 0 {
 		return SanitizeName(contactInfo.FullName)
@@ -1548,12 +1573,17 @@ func GetContacts(connId int) {
 		var userIdNames map[string]string = make(map[string]string)       // contacts
 		var aliasUserIdNames map[string]string = make(map[string]string)  // public
 		var senderUserIdNames map[string]string = make(map[string]string) // public/phone
+		var savedUserIds []string                                         // address book
 
 		// add regular data first (address book names)
 		for jid, contactInfo := range contacts {
 			if jid.Server != types.HiddenUserServer {
 				name := GetNameFromContactInfo(contactInfo)
 				userId := StrFromJid(jid)
+				isSaved := IsSavedContactInfo(contactInfo)
+				if isSaved {
+					savedUserIds = append(savedUserIds, userId)
+				}
 				if len(name) > 0 {
 					userIdNames[userId] = name
 					userIdPhones[userId] = PhoneFromUserId(userId)
@@ -1563,6 +1593,9 @@ func GetContacts(connId int) {
 						userLid := StrFromJid(lid)
 						aliasUserIdNames[userLid] = name
 						userIdPhones[userLid] = userIdPhones[userId]
+						if isSaved {
+							savedUserIds = append(savedUserIds, userLid)
+						}
 					}
 				} else {
 					LOG_WARNING(fmt.Sprintf("Skip empty name %s %#v", userId, contactInfo))
@@ -1573,6 +1606,9 @@ func GetContacts(connId int) {
 		// add lid-based data second (public names)
 		for jid, contactInfo := range contacts {
 			if jid.Server == types.HiddenUserServer {
+				if IsSavedContactInfo(contactInfo) {
+					savedUserIds = append(savedUserIds, StrFromJid(jid))
+				}
 				name := GetNameFromContactInfo(contactInfo)
 				userId := StrFromJid(jid)
 				if len(name) > 0 {
@@ -1601,6 +1637,8 @@ func GetContacts(connId int) {
 				}
 			}
 		}
+
+		WriteSavedContacts(connId, savedUserIds)
 
 		// add alias names based on local cache
 		senders := GetAllSenders(connId)

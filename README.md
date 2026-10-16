@@ -500,6 +500,9 @@ This configuration file holds general user interface settings. Default content:
     home_fetch_all=0
     linefeed_on_enter=1
     link_open_command=
+    link_preview_command=curl -s -L -m 8 --max-redirs 5 --compressed --proto =http,https --proto-redir =http,https -A 'facebookexternalhit/1.1' '%1' </dev/null 2>/dev/null
+    link_preview_fetch=2
+    link_thumbnail_command=ffmpeg -nostdin -y -v error -protocol_whitelist http,https,tcp,tls -rw_timeout 8000000 -user_agent 'facebookexternalhit/1.1' -i '%1' -vf "scale='min(320,iw)':-2" -frames:v 1 '%2' >/dev/null 2>&1
     list_enabled=1
     list_width=14
     listdialog_show_filter=1
@@ -745,6 +748,50 @@ macOS: `open '%1' &`
 
 Note: Omit the trailing `&` for commands taking over the terminal, for
 example `w3m -o confirm_qq=false '%1'` and `see '%1'`.
+
+### link_preview_command
+
+Specifies the command used to fetch the web page of a link for its preview
+(see `link_preview_fetch`). `%1` is replaced by the url, and the command shall
+write the page html to stdout (only the first 1 MB is used). A non-zero exit
+status is treated as a network error: the link is not marked as fetched and is
+retried next session. Default:
+
+    curl -s -L -m 8 --max-redirs 5 --compressed --proto =http,https --proto-redir =http,https -A 'facebookexternalhit/1.1' '%1' </dev/null 2>/dev/null
+
+The user agent `facebookexternalhit/1.1` makes sites such as Facebook return
+their Open Graph metadata instead of a login page.
+
+### link_preview_fetch
+
+Specifies whose links get a preview fetched from the web page, for messages
+without an embedded preview (received before media previews, sent from nchat,
+or sent without one). Only links in messages shown on screen are fetched, one
+at a time in background, and only the first link of a message. Title,
+description and image are taken from Open Graph tags, falling back to Twitter
+tags and the html title and description. Results are stored in the
+`<id>.meta` and `<id>.thumb.jpg` sidecar files, so each link is fetched once,
+also if the page had no metadata. Levels:
+
+- `0` never fetch
+- `1` own messages, and chats and status updates of contacts saved in the
+  address book
+- `2` like `1`, plus all messages in groups (default)
+- `3` all messages, also from unknown numbers and channels
+
+Privacy note: fetching a link reveals your IP address to the site, and that
+the message was viewed. A link unique to the recipient (as used for tracking)
+could thereby confirm to a spammer that the number is active. The official
+WhatsApp apps do not have this exposure, as the sender generates the preview.
+Saved contacts are determined from the address book names synced from
+WhatsApp, written to `<profile>/saved_contacts` on connect.
+
+### link_thumbnail_command
+
+Specifies the command used to create the preview thumbnail of a link from its
+image url (`%1`), written as JPEG to `%2`. Default:
+
+    ffmpeg -nostdin -y -v error -protocol_whitelist http,https,tcp,tls -rw_timeout 8000000 -user_agent 'facebookexternalhit/1.1' -i '%1' -vf "scale='min(320,iw)':-2" -frames:v 1 '%2' >/dev/null 2>&1
 
 ### list_archived_collapsed
 

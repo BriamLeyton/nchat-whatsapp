@@ -163,6 +163,39 @@ void UiHistoryView::Draw()
       const MediaMeta* meta = (!msg.fileInfo.empty() || hasLink || (currentChat.second == statusChatId)) ?
         &MediaInfo::Get(currentChat.first, msg.id) : nullptr;
 
+      // Link without preview (old, sent from nchat, or none embedded), fetch from web page if origin allowed:
+      // 1 = own messages and saved contacts, 2 = also groups, 3 = all
+      if (p_Final && hasLink && (meta != nullptr) && msg.fileInfo.empty() && meta->title.empty() &&
+          meta->description.empty() && !meta->linkFetched)
+      {
+        static const int linkPreviewFetch = UiConfig::GetNum("link_preview_fetch");
+        static const std::string groupSuffix = "@g.us";
+        const std::string& chatId = currentChat.second;
+        const bool isGroup = (chatId.size() > groupSuffix.size()) &&
+          (chatId.compare(chatId.size() - groupSuffix.size(), groupSuffix.size(), groupSuffix) == 0);
+        bool allowed = false;
+        if (linkPreviewFetch >= 3)
+        {
+          allowed = true;
+        }
+        else if (linkPreviewFetch >= 1)
+        {
+          allowed = msg.isOutgoing ||
+            (isGroup && (linkPreviewFetch >= 2)) ||
+            (!isGroup && MediaInfo::IsSavedContact(currentChat.first,
+                                                   (chatId == statusChatId) ? msg.senderId : chatId));
+        }
+
+        if (allowed)
+        {
+          const std::string url = MediaInfo::GetFirstUrl(msg.text);
+          if (!url.empty())
+          {
+            MediaInfo::RequestLinkPreview(currentChat.first, msg.id, url);
+          }
+        }
+      }
+
       // Quoted message
       bool hasQuoteLine = false;
       if (!msg.quotedId.empty())

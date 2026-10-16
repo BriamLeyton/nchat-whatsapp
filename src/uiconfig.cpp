@@ -51,6 +51,14 @@ void UiConfig::Init()
     { "inline_images_enabled", "1" },
     { "linefeed_on_enter", "1" },
     { "link_open_command", "" },
+    { "link_preview_fetch", "2" },
+    { "link_preview_command",
+      "curl -s -L -m 8 --max-redirs 5 --compressed --proto =http,https --proto-redir =http,https "
+      "-A 'facebookexternalhit/1.1' '%1' </dev/null 2>/dev/null" },
+    { "link_thumbnail_command",
+      "ffmpeg -nostdin -y -v error -protocol_whitelist http,https,tcp,tls -rw_timeout 8000000 "
+      "-user_agent 'facebookexternalhit/1.1' -i '%1' -vf \"scale='min(320,iw)':-2\" -frames:v 1 '%2' "
+      ">/dev/null 2>&1" },
     { "list_archived_collapsed", "1" },
     { "list_archived_header", "ARCHIVED" },
     { "list_enabled", "1" },
