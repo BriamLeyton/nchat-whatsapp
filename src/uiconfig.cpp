@@ -47,7 +47,7 @@ void UiConfig::Init()
     { "help_prefix_ctrl", "Ctrl+" },
     { "help_prefix_meta", "Alt+" },
     { "home_fetch_all", "0" },
-    { "inline_image_max_height", "10" },
+    { "inline_image_max_height", "14" },
     { "inline_images_enabled", "1" },
     { "linefeed_on_enter", "1" },
     { "link_open_command", "" },

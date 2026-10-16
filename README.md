@@ -498,6 +498,8 @@ This configuration file holds general user interface settings. Default content:
     help_prefix_ctrl=^
     help_prefix_meta=M-
     home_fetch_all=0
+    inline_image_max_height=14
+    inline_images_enabled=1
     linefeed_on_enter=1
     link_open_command=
     link_preview_command=curl -s -L -m 8 --max-redirs 5 --compressed --proto =http,https --proto-redir =http,https -A 'facebookexternalhit/1.1' '%1' </dev/null 2>/dev/null
@@ -728,6 +730,16 @@ configured in `key.conf`.
 ### home_fetch_all
 
 Specifies whether `home` button shall repeatedly fetch all chat history.
+
+### inline_image_max_height
+
+Specifies the maximum height, in rows, of inline images, video poster frames
+and embedded thumbnails. Link preview thumbnails use at most 6 rows.
+
+### inline_images_enabled
+
+Specifies whether to show images inline in terminals supporting the kitty
+graphics protocol (e.g. kitty, Ghostty).
 
 ### linefeed_on_enter
 
@@ -1046,7 +1058,7 @@ network requests), stored next to attachments as `<id>.thumb.jpg` and
 - video and audio attachments show duration and size (`▶ 1:15 · 4.2 MB`),
   voice notes show `🎤 0:42`;
 - images and videos not (yet) downloaded show the low-resolution embedded
-  thumbnail inline;
+  thumbnail inline, enlarged to the same size as a downloaded image;
 - links show title, description and thumbnail;
 - text-only status updates are drawn with their background color.
 

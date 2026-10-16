@@ -337,6 +337,7 @@ void UiHistoryView::Draw()
 
         // Inline image: downloaded image, video poster frame, or embedded thumbnail when not downloaded
         std::string inlinePath;
+        bool inlineUpscale = false;
         if (inlineImagesEnabled)
         {
           const bool isDownloaded = (fileInfo.fileStatus == FileStatusDownloaded);
@@ -352,11 +353,12 @@ void UiHistoryView::Draw()
           if (inlinePath.empty() && (isImageFile || isVideoFile) && (meta != nullptr))
           {
             inlinePath = meta->thumbPath;
+            inlineUpscale = true;
           }
         }
 
         // Inline image rows reserved below attachment line, image placed after refresh
-        if (!inlinePath.empty() && UiImage::Prepare(inlinePath, m_PaddedW, inlineImageMaxHeight, imageInfo))
+        if (!inlinePath.empty() && UiImage::Prepare(inlinePath, m_PaddedW, inlineImageMaxHeight, imageInfo, inlineUpscale))
         {
           imageLineIndex = 1;
           wlines.insert(std::next(wlines.begin(), imageLineIndex), imageInfo.rows, std::wstring());
@@ -412,9 +414,9 @@ void UiHistoryView::Draw()
 
         previewLineEnd = (int)wlines.size();
 
-        static const int previewImageMaxHeight = std::min(4, inlineImageMaxHeight);
+        static const int previewImageMaxHeight = std::min(6, inlineImageMaxHeight);
         if (inlineImagesEnabled && !meta->thumbPath.empty() &&
-            UiImage::Prepare(meta->thumbPath, m_PaddedW, previewImageMaxHeight, imageInfo))
+            UiImage::Prepare(meta->thumbPath, m_PaddedW, previewImageMaxHeight, imageInfo, true))
         {
           imageLineIndex = (int)wlines.size();
           wlines.insert(wlines.end(), imageInfo.rows, std::wstring());

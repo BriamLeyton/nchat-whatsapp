@@ -56,7 +56,9 @@ public:
   static bool IsAudioFile(const std::string& p_Path);
 
   // Decode, scale and transmit image (once), returns false if it cannot be rendered.
-  static bool Prepare(const std::string& p_Path, int p_MaxCols, int p_MaxRows, UiImageInfo& p_Info);
+  // Small images are only enlarged to fill the box when p_Upscale is set (embedded thumbnails).
+  static bool Prepare(const std::string& p_Path, int p_MaxCols, int p_MaxRows, UiImageInfo& p_Info,
+                      bool p_Upscale = false);
 
   // Remove all visible placements (keeps transmitted image data).
   static void ClearPlacements();

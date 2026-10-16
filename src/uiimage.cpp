@@ -282,7 +282,8 @@ bool UiImage::Decode(const std::string& p_Path, std::vector<uint8_t>& p_Rgba, in
   return true;
 }
 
-bool UiImage::Prepare(const std::string& p_Path, int p_MaxCols, int p_MaxRows, UiImageInfo& p_Info)
+bool UiImage::Prepare(const std::string& p_Path, int p_MaxCols, int p_MaxRows, UiImageInfo& p_Info,
+                      bool p_Upscale)
 {
   std::lock_guard<std::mutex> lock(s_Mutex);
   if (!s_Enabled || (p_MaxCols <= 0) || (p_MaxRows <= 0)) return false;
@@ -292,7 +293,7 @@ bool UiImage::Prepare(const std::string& p_Path, int p_MaxCols, int p_MaxRows, U
   GetCellSize(cellW, cellH);
 
   const std::string key = p_Path + "|" + std::to_string(p_MaxCols) + "x" + std::to_string(p_MaxRows) +
-    "|" + std::to_string(cellW) + "x" + std::to_string(cellH);
+    "|" + std::to_string(cellW) + "x" + std::to_string(cellH) + (p_Upscale ? "|up" : "");
   auto cacheIt = s_Cache.find(key);
   if (cacheIt != s_Cache.end())
   {
@@ -317,10 +318,11 @@ bool UiImage::Prepare(const std::string& p_Path, int p_MaxCols, int p_MaxRows, U
   }
   else
   {
-    // fit within max box, preserving aspect ratio and never upscaling
+    // fit within max box, preserving aspect ratio and only upscaling when requested
     const double maxW = static_cast<double>(p_MaxCols * cellW);
     const double maxH = static_cast<double>(p_MaxRows * cellH);
-    const double scale = std::min({ 1.0, maxW / imgW, maxH / imgH });
+    const double fit = std::min(maxW / imgW, maxH / imgH);
+    const double scale = p_Upscale ? fit : std::min(1.0, fit);
     const int dstW = std::max(1, static_cast<int>(std::floor(imgW * scale)));
     const int dstH = std::max(1, static_cast<int>(std::floor(imgH * scale)));
 
