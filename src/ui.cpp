@@ -16,6 +16,7 @@
 #include "apputil.h"
 #include "emojilist.h"
 #include "log.h"
+#include "mediainfo.h"
 #include "messagecache.h"
 #include "timeutil.h"
 #include "uicolorconfig.h"
@@ -77,6 +78,7 @@ void Ui::Cleanup()
   UiKeyConfig::Cleanup();
   EmojiList::Cleanup();
 
+  MediaInfo::Cleanup();
   UiImage::Cleanup();
   wclear(stdscr);
   endwin();

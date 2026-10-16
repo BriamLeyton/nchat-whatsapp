@@ -533,6 +533,7 @@ This configuration file holds general user interface settings. Default content:
     typing_status_share=1
     undo_clear_input=1
     unread_indicator=*
+    video_thumbnail_command=ffmpegthumbnailer -i '%1' -o '%2' -s 640 -q 8 >/dev/null 2>&1
 
 ### attachment_indicator
 
@@ -941,6 +942,29 @@ is enabled.
 ### unread_indicator
 
 Specifies the character to suffix chats with unread messages in the chat list.
+
+### video_thumbnail_command
+
+Specifies a command used to generate a poster frame of downloaded videos, shown
+as inline image. `%1` is replaced by the video path and `%2` by the output
+image path. Default:
+
+    ffmpegthumbnailer -i '%1' -o '%2' -s 640 -q 8 >/dev/null 2>&1
+
+Empty disables poster frames. Videos with a failed poster frame are not retried
+until nchat is restarted.
+
+Media previews are based on data embedded in received messages (no extra
+network requests), stored next to attachments as `<id>.thumb.jpg` and
+`<id>.meta`:
+- video and audio attachments show duration and size (`▶ 1:15 · 4.2 MB`),
+  voice notes show `🎤 0:42`;
+- images and videos not (yet) downloaded show the low-resolution embedded
+  thumbnail inline;
+- links show title, description and thumbnail;
+- text-only status updates are drawn with their background color.
+
+Messages received before this feature show as before.
 
 ~/.config/nchat/key.conf
 ------------------------

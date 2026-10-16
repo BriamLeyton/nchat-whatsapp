@@ -204,6 +204,44 @@ int UiColorConfig::GetUserColorPair(const std::string& p_Param, const std::strin
   return colorPairs[userIdColor];
 }
 
+int UiColorConfig::GetRgbColorPair(uint32_t p_FgRgb, uint32_t p_BgRgb)
+{
+  if (!has_colors()) return 0;
+
+  static std::map<std::pair<uint32_t, uint32_t>, int> colorPairs;
+  static const size_t maxColorPairs = 32;
+
+  const std::pair<uint32_t, uint32_t> key(p_FgRgb & 0xffffff, p_BgRgb & 0xffffff);
+  auto colorPair = colorPairs.find(key);
+  if (colorPair != colorPairs.end()) return colorPair->second;
+
+  if (colorPairs.size() >= maxColorPairs) return 0;
+
+  auto toHex = [](uint32_t p_Rgb)
+  {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "0x%06x", p_Rgb);
+    return std::string(buf);
+  };
+
+  const int fg = GetColorId(toHex(key.first));
+  const int bg = GetColorId(toHex(key.second));
+  if ((fg < 0) || (bg < 0))
+  {
+    colorPairs[key] = 0;
+    return 0;
+  }
+
+  ++colorPairId;
+  const int id = colorPairId;
+  init_pair(id, fg, bg);
+
+  LOG_TRACE("rgb color id %d fg %d bg %d", id, fg, bg);
+
+  colorPairs[key] = COLOR_PAIR(id);
+  return colorPairs[key];
+}
+
 bool UiColorConfig::IsUserColor(const std::string& p_Param)
 {
   return (m_Config.Get(p_Param + "_fg") == userColor) ||

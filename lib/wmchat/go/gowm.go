@@ -726,7 +726,7 @@ func ExtensionByType(mimeType string, defaultExt string) string {
 	exts, extErr := mime.ExtensionsByType(mimeType)
 	if extErr == nil && len(exts) > 0 {
 		// prefer common extensions over less common (.jpe, etc) returned by mime library
-		preferredExts := []string{".jpg", ".jpeg"}
+		preferredExts := []string{".jpg", ".jpeg", ".mp4"}
 		sort.Slice(exts, func(i, j int) bool {
 			return SliceIndex(preferredExts, exts[i], math.MaxInt32) < SliceIndex(preferredExts, exts[j], math.MaxInt32)
 		})
@@ -734,6 +734,67 @@ func ExtensionByType(mimeType string, defaultExt string) string {
 	}
 
 	return ext
+}
+
+// media sidecar files, written next to the attachment from data embedded in the message (no network)
+type MediaMeta struct {
+	Seconds        uint32
+	FileLength     uint64
+	IsPtt          bool
+	Title          string
+	Description    string
+	BackgroundArgb uint32
+	TextArgb       uint32
+}
+
+func WriteMediaSidecar(connId int, msgId string, thumb []byte, meta MediaMeta) {
+	var lines []string
+	if meta.Seconds > 0 {
+		lines = append(lines, fmt.Sprintf("seconds=%d", meta.Seconds))
+	}
+	if meta.FileLength > 0 {
+		lines = append(lines, fmt.Sprintf("file_length=%d", meta.FileLength))
+	}
+	if meta.IsPtt {
+		lines = append(lines, "ptt=1")
+	}
+	oneLine := strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
+	if len(meta.Title) > 0 {
+		lines = append(lines, "title="+oneLine.Replace(meta.Title))
+	}
+	if len(meta.Description) > 0 {
+		lines = append(lines, "description="+oneLine.Replace(meta.Description))
+	}
+	if meta.BackgroundArgb != 0 {
+		lines = append(lines, fmt.Sprintf("background_argb=%d", meta.BackgroundArgb))
+	}
+	if meta.TextArgb != 0 {
+		lines = append(lines, fmt.Sprintf("text_argb=%d", meta.TextArgb))
+	}
+
+	if len(thumb) == 0 && len(lines) == 0 {
+		return
+	}
+
+	var tmpPath string = GetPath(connId) + "/tmp"
+	_ = os.MkdirAll(tmpPath, 0755)
+	basePath := fmt.Sprintf("%s/%s", tmpPath, msgId)
+	writeIfMissing := func(path string, data []byte) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+
+		if err := os.WriteFile(path, data, 0644); err != nil {
+			LOG_WARNING(fmt.Sprintf("write %s failed: %#v", path, err))
+		}
+	}
+
+	if len(thumb) > 0 {
+		writeIfMissing(basePath+".thumb.jpg", thumb)
+	}
+	if len(lines) > 0 {
+		writeIfMissing(basePath+".meta", []byte(strings.Join(lines, "\n")+"\n"))
+	}
 }
 
 // logger
@@ -1889,6 +1950,16 @@ func (handler *WmEventHandler) HandleTextMessage(messageInfo types.MessageInfo, 
 		handler.ProcessContextInfo(ci, &quotedId, &text)
 	}
 
+	isStatus := (messageInfo.Chat.String() == "status@broadcast")
+	if ext := msg.GetExtendedTextMessage(); (ext != nil) && (messageInfo.Edit != "1") {
+		meta := MediaMeta{Title: ext.GetTitle(), Description: ext.GetDescription()}
+		if isStatus {
+			meta.BackgroundArgb = ext.GetBackgroundArgb()
+			meta.TextArgb = ext.GetTextArgb()
+		}
+		WriteMediaSidecar(connId, messageInfo.ID, ext.GetJPEGThumbnail(), meta)
+	}
+
 	// file id, path and status
 	fileId := ""
 	filePath := ""
@@ -1949,6 +2020,7 @@ func (handler *WmEventHandler) HandleImageMessage(messageInfo types.MessageInfo,
 		var tmpPath string = GetPath(connId) + "/tmp"
 		filePath = fmt.Sprintf("%s/%s%s", tmpPath, messageInfo.ID, ext)
 		fileId = DownloadableMessageToFileId(client, img, filePath)
+		WriteMediaSidecar(connId, messageInfo.ID, img.GetJPEGThumbnail(), MediaMeta{})
 	}
 
 	// general
@@ -2009,6 +2081,8 @@ func (handler *WmEventHandler) HandleVideoMessage(messageInfo types.MessageInfo,
 		var tmpPath string = GetPath(connId) + "/tmp"
 		filePath = fmt.Sprintf("%s/%s%s", tmpPath, messageInfo.ID, ext)
 		fileId = DownloadableMessageToFileId(client, vid, filePath)
+		WriteMediaSidecar(connId, messageInfo.ID, vid.GetJPEGThumbnail(),
+			MediaMeta{Seconds: vid.GetSeconds(), FileLength: vid.GetFileLength()})
 	}
 
 	// general
@@ -2061,6 +2135,8 @@ func (handler *WmEventHandler) HandleAudioMessage(messageInfo types.MessageInfo,
 	filePath := fmt.Sprintf("%s/%s%s", tmpPath, messageInfo.ID, ext)
 	fileId := DownloadableMessageToFileId(client, aud, filePath)
 	fileStatus := FileStatusNotDownloaded
+	WriteMediaSidecar(connId, messageInfo.ID, nil,
+		MediaMeta{Seconds: aud.GetSeconds(), FileLength: aud.GetFileLength(), IsPtt: aud.GetPTT()})
 
 	// general
 	chatId := GetChatId(client, &messageInfo.Chat, &messageInfo.Sender)

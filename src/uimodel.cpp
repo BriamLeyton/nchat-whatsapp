@@ -20,6 +20,7 @@
 #include "composescript.h"
 #include "fileutil.h"
 #include "log.h"
+#include "mediainfo.h"
 #include "numutil.h"
 #include "protocolutil.h"
 #include "sethelp.h"
@@ -2593,6 +2594,11 @@ bool UiModel::Impl::Process()
   }
 
   ProcessTimers();
+
+  if (MediaInfo::TakePosterUpdated())
+  {
+    UpdateHistory();
+  }
 
   SetTyping("", "", false);
   m_View->Draw();

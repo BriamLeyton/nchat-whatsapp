@@ -93,6 +93,7 @@ void UiConfig::Init()
     { "typing_status_share", "1" },
     { "undo_clear_input", "1" },
     { "unread_indicator", "*" },
+    { "video_thumbnail_command", "ffmpegthumbnailer -i '%1' -o '%2' -s 640 -q 8 >/dev/null 2>&1" },
   };
 
   const std::string configPath(FileUtil::GetApplicationDir() + std::string("/ui.conf"));

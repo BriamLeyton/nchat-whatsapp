@@ -11,6 +11,7 @@
 #include "apputil.h"
 #include "fileutil.h"
 #include "log.h"
+#include "mediainfo.h"
 #include "protocolutil.h"
 #include "strutil.h"
 #include "timeutil.h"
@@ -154,9 +155,19 @@ void UiHistoryView::Draw()
         wlines = StrUtil::WordWrap(StrUtil::ToWString(text), m_PaddedW, false, false, false, 2);
       }
 
+      const int textLineCount = (int)wlines.size();
+
+      // Media metadata (sidecar files written on receipt), only looked up for attachments, links and status
+      static const std::string statusChatId = "status@broadcast";
+      const bool hasLink = (msg.text.find("http") != std::string::npos);
+      const MediaMeta* meta = (!msg.fileInfo.empty() || hasLink || (currentChat.second == statusChatId)) ?
+        &MediaInfo::Get(currentChat.first, msg.id) : nullptr;
+
       // Quoted message
+      bool hasQuoteLine = false;
       if (!msg.quotedId.empty())
       {
+        hasQuoteLine = true;
         std::string quotedText;
         auto quotedIt = messages.find(msg.quotedId);
         if (quotedIt != messages.end())
@@ -197,7 +208,9 @@ void UiHistoryView::Draw()
       if (!msg.fileInfo.empty())
       {
         FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(msg.fileInfo);
-        const bool isInlineImage = inlineImagesEnabled && UiImage::IsImageFile(fileInfo.filePath);
+        const bool isImageFile = UiImage::IsImageFile(fileInfo.filePath);
+        const bool isVideoFile = UiImage::IsVideoFile(fileInfo.filePath);
+        const bool isInlineImage = inlineImagesEnabled && isImageFile;
 
         // special case handling selection-triggered download, and handling cache's old setting
         static const bool isAttachmentPrefetchAll =
@@ -250,16 +263,141 @@ void UiHistoryView::Draw()
           fileStatus = statusDownloadFailed;
         }
 
-        std::wstring fileStr = attachmentIndicator + StrUtil::ToWString(fileName + fileStatus);
+        // Video / audio duration and size, ex: " ▶ 1:15 · 4.2 MB" or " 🎤 0:42"
+        std::string mediaStr;
+        if ((meta != nullptr) && !isImageFile)
+        {
+          if (meta->isPtt && (meta->seconds > 0))
+          {
+            mediaStr = " \xf0\x9f\x8e\xa4 " + MediaInfo::FormatDuration(meta->seconds);
+          }
+          else if ((meta->seconds > 0) || (meta->fileLength > 0))
+          {
+            mediaStr = " \xe2\x96\xb6 ";
+            if (meta->seconds > 0)
+            {
+              mediaStr += MediaInfo::FormatDuration(meta->seconds);
+            }
+
+            if (meta->fileLength > 0)
+            {
+              mediaStr += std::string((meta->seconds > 0) ? " \xc2\xb7 " : "") + MediaInfo::FormatSize(meta->fileLength);
+            }
+          }
+
+          if (!emojiEnabled)
+          {
+            mediaStr = StrUtil::Textize(mediaStr);
+          }
+        }
+
+        std::wstring fileStr = attachmentIndicator + StrUtil::ToWString(fileName + fileStatus + mediaStr);
         wlines.insert(wlines.begin(), fileStr);
 
+        // Inline image: downloaded image, video poster frame, or embedded thumbnail when not downloaded
+        std::string inlinePath;
+        if (inlineImagesEnabled)
+        {
+          const bool isDownloaded = (fileInfo.fileStatus == FileStatusDownloaded);
+          if (isImageFile && isDownloaded)
+          {
+            inlinePath = fileInfo.filePath;
+          }
+          else if (isVideoFile && isDownloaded)
+          {
+            inlinePath = MediaInfo::GetPosterPath(fileInfo.filePath, p_Final);
+          }
+
+          if (inlinePath.empty() && (isImageFile || isVideoFile) && (meta != nullptr))
+          {
+            inlinePath = meta->thumbPath;
+          }
+        }
+
         // Inline image rows reserved below attachment line, image placed after refresh
-        if (isInlineImage && (fileInfo.fileStatus == FileStatusDownloaded) &&
-            UiImage::Prepare(fileInfo.filePath, m_PaddedW, inlineImageMaxHeight, imageInfo))
+        if (!inlinePath.empty() && UiImage::Prepare(inlinePath, m_PaddedW, inlineImageMaxHeight, imageInfo))
         {
           imageLineIndex = 1;
           wlines.insert(std::next(wlines.begin(), imageLineIndex), imageInfo.rows, std::wstring());
         }
+      }
+
+      // Link preview: title, description and thumbnail embedded in the message
+      int previewLineIndex = -1;
+      int previewLineEnd = -1;
+      bool previewHasTitle = false;
+      if ((meta != nullptr) && msg.fileInfo.empty() && (!meta->title.empty() || !meta->description.empty()))
+      {
+        static const std::wstring previewIndicator = L"\u258f ";
+        const int previewW = std::max(m_PaddedW - 2, 1);
+        auto previewStr = [&](const std::string& p_Str)
+        {
+          std::string str = p_Str;
+          StrUtil::SanitizeMessageStr(str);
+          if (!emojiEnabled)
+          {
+            str = StrUtil::Textize(str);
+          }
+
+          return StrUtil::ToWString(str);
+        };
+
+        previewLineIndex = (int)wlines.size();
+        if (!meta->title.empty())
+        {
+          previewHasTitle = true;
+          wlines.push_back(previewIndicator + StrUtil::TrimPadWString(previewStr(meta->title), previewW));
+        }
+
+        if (!meta->description.empty())
+        {
+          static const int maxDescLines = 2;
+          std::vector<std::wstring> descLines =
+            StrUtil::WordWrap(previewStr(meta->description), previewW, false, false, false, 2);
+          if ((int)descLines.size() > maxDescLines)
+          {
+            descLines.resize(maxDescLines);
+            std::wstring& lastLine = descLines.back();
+            lastLine = StrUtil::TrimPadWString(lastLine, previewW - 1);
+            lastLine.erase(lastLine.find_last_not_of(L' ') + 1);
+            lastLine += L"\u2026";
+          }
+
+          for (const auto& descLine : descLines)
+          {
+            wlines.push_back(previewIndicator + descLine);
+          }
+        }
+
+        previewLineEnd = (int)wlines.size();
+
+        static const int previewImageMaxHeight = std::min(4, inlineImageMaxHeight);
+        if (inlineImagesEnabled && !meta->thumbPath.empty() &&
+            UiImage::Prepare(meta->thumbPath, m_PaddedW, previewImageMaxHeight, imageInfo))
+        {
+          imageLineIndex = (int)wlines.size();
+          wlines.insert(wlines.end(), imageInfo.rows, std::wstring());
+        }
+      }
+
+      // Status text background color, applied to the text lines
+      int colorPairBackground = 0;
+      int backgroundLineIndex = -1;
+      if ((meta != nullptr) && meta->hasBackground && msg.fileInfo.empty() && (textLineCount > 0))
+      {
+        const uint32_t bgRgb = meta->backgroundArgb & 0xffffff;
+        uint32_t fgRgb = meta->textArgb & 0xffffff;
+        if (!meta->hasTextColor)
+        {
+          const uint32_t r = (bgRgb >> 16) & 0xff;
+          const uint32_t g = (bgRgb >> 8) & 0xff;
+          const uint32_t b = bgRgb & 0xff;
+          const uint32_t luminance = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+          fgRgb = (luminance > 140) ? 0x000000 : 0xffffff;
+        }
+
+        colorPairBackground = UiColorConfig::GetRgbColorPair(fgRgb, bgRgb);
+        backgroundLineIndex = hasQuoteLine ? 1 : 0;
       }
 
       // Reactions
@@ -375,43 +513,39 @@ void UiHistoryView::Draw()
         bool isAttachment = (wline->rfind(attachmentIndicator, 0) == 0);
         bool isQuote = (wline->rfind(quoteIndicator, 0) == 0);
         bool isReaction = (reactionLines == 1) && (std::distance(wline, wlines.rbegin()) == 0);
+        bool isPreview = (lineIndex >= previewLineIndex) && (lineIndex < previewLineEnd);
+        bool isPreviewTitle = isPreview && previewHasTitle && (lineIndex == previewLineIndex);
+        bool isBackground = (colorPairBackground != 0) && (lineIndex >= backgroundLineIndex) &&
+          (lineIndex < (backgroundLineIndex + textLineCount));
 
+        int lineAttribute = 0;
         if (isAttachment)
         {
-          wattron(m_PaddedWin, attributeText | colorPairTextAttachment);
+          lineAttribute = attributeText | colorPairTextAttachment;
         }
-        else if (isQuote)
+        else if (isQuote || isPreview)
         {
-          wattron(m_PaddedWin, attributeText | colorPairTextQuoted);
+          lineAttribute = attributeText | colorPairTextQuoted | (isPreviewTitle ? A_BOLD : 0);
         }
         else if (isReaction)
         {
-          wattron(m_PaddedWin, attributeTextNormal | colorPairTextReaction);
+          lineAttribute = attributeTextNormal | colorPairTextReaction;
+        }
+        else if (isBackground)
+        {
+          lineAttribute = attributeText | colorPairBackground;
         }
         else
         {
-          wattron(m_PaddedWin, attributeText | colorPairText);
+          lineAttribute = attributeText | colorPairText;
         }
+
+        wattron(m_PaddedWin, lineAttribute);
 
         const std::wstring wdisp = isReaction ? *wline : StrUtil::TrimPadWString(*wline, m_PaddedW);
         mvwaddnwstr(m_PaddedWin, y, 0, wdisp.c_str(), std::min((int)wdisp.size(), m_PaddedW));
 
-        if (isAttachment)
-        {
-          wattroff(m_PaddedWin, attributeText | colorPairTextAttachment);
-        }
-        else if (isQuote)
-        {
-          wattroff(m_PaddedWin, attributeText | colorPairTextQuoted);
-        }
-        else if (isReaction)
-        {
-          wattroff(m_PaddedWin, attributeTextNormal | colorPairTextReaction);
-        }
-        else
-        {
-          wattroff(m_PaddedWin, attributeText | colorPairText);
-        }
+        wattroff(m_PaddedWin, lineAttribute);
 
         if (--y < 0) break;
       }

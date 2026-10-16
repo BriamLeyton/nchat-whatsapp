@@ -402,6 +402,8 @@ add_custom_command(
 add_executable(nchat
   ${COMPOSE_SCRIPT_HEADER}
   src/main.cpp
+  src/mediainfo.cpp
+  src/mediainfo.h
   src/ui.cpp
   src/ui.h
   src/uichatlistdialog.cpp

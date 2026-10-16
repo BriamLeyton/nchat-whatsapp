@@ -186,6 +186,16 @@ bool UiImage::IsImageFile(const std::string& p_Path)
   return (ext == "jpg") || (ext == "jpeg") || (ext == "png") || (ext == "webp") || (ext == "gif");
 }
 
+bool UiImage::IsVideoFile(const std::string& p_Path)
+{
+  size_t dotPos = p_Path.find_last_of('.');
+  if (dotPos == std::string::npos) return false;
+
+  std::string ext = StrUtil::ToLower(p_Path.substr(dotPos + 1));
+  return (ext == "mp4") || (ext == "f4v") || (ext == "m4v") || (ext == "mov") || (ext == "webm") ||
+         (ext == "3gp") || (ext == "mkv");
+}
+
 void UiImage::GetCellSize(int& p_CellW, int& p_CellH)
 {
   struct winsize ws;
