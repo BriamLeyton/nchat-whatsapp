@@ -286,6 +286,11 @@ public:
   static void DeleteContact(const std::string& p_ProfileId, const std::string& p_ContactId);
   static void MoveChat(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_NewChatId);
   static std::vector<std::string> GetChatIdsSync(const std::string& p_ProfileId);
+  static std::vector<std::pair<std::string, int64_t>> GetSenderLastTimesSync(const std::string& p_ProfileId,
+                                                                             const std::string& p_ChatId);
+  static std::vector<ChatMessage> FetchSenderMessagesSync(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                                          const std::string& p_SenderId, int64_t p_BeforeTime,
+                                                          int p_Limit);
   static void UpdateMessageIsRead(const std::string& p_ProfileId, const std::string& p_ChatId,
                                   const std::string& p_MsgId,
                                   bool p_IsRead, int p_DeliveryStatus = DeliveryStatusUnknown);
@@ -312,7 +317,8 @@ private:
   static void PerformRequest(std::shared_ptr<Request> p_Request);
   static void PerformFetchMessagesFrom(const std::string& p_ProfileId, const std::string& p_ChatId,
                                        const int64_t p_FromMsgIdTimeSent, const int p_Limit,
-                                       std::vector<ChatMessage>& p_ChatMessages);
+                                       std::vector<ChatMessage>& p_ChatMessages,
+                                       const std::string& p_SenderId = "");
   static void PerformFetchOneMessage(const std::string& p_ProfileId, const std::string& p_ChatId,
                                      const std::string& p_MsgId, std::vector<ChatMessage>& p_ChatMessages);
 

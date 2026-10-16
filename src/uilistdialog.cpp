@@ -99,7 +99,7 @@ void UiListDialog::KeyHandler(wint_t p_Key)
   {
     m_Model->SetTerminalActive(false);
   }
-  else if (p_Key == keyCancel)
+  else if ((p_Key == keyCancel) || (m_EscCancels && (p_Key == 27)))
   {
     m_Result = false;
     m_Running = false;

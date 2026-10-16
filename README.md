@@ -75,6 +75,7 @@ Interactive Commands:
     Alt-o       collapse/expand others chats section
     Alt-p       pin/unpin current chat
     Alt-t       external telephone call
+    Alt-u       filter status updates by contact (in Status)
     Alt-/       find in chat
     Alt-?       find next in chat
     Alt-$       external spell check
@@ -777,6 +778,10 @@ Name of the WhatsApp Status Updates row, shown first in the chat list outside
 of the chat sections. Its style is set by `list_attr_status` and
 `list_color_status_fg` / `list_color_status_bg` in `color.conf`. Status
 Updates cannot be pinned or archived, and `status_broadcast=0` hides the row.
+
+In Status Updates, Alt-u filters by the contact of the selected status, or
+opens a dialog of contacts with status updates when no status is selected.
+Alt-u again, or leaving Status Updates, removes the filter.
 
 ### listdialog_show_filter
 

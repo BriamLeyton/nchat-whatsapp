@@ -82,6 +82,7 @@ namespace
           { "save", "Save attachment" },
           { "open_link", "Open link" },
           { "open_msg", "View in external viewer" },
+          { "status_filter", "Filter status by contact" },
         },
       },
       {

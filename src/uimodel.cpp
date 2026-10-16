@@ -33,6 +33,7 @@
 #include "uiconfig.h"
 #include "uicontactlistdialog.h"
 #include "uigroupmemberlistdialog.h"
+#include "uistatuscontactdialog.h"
 #include "uicontroller.h"
 #include "uiemojilistdialog.h"
 #include "uifilelistdialog.h"
@@ -335,7 +336,7 @@ void UiModel::Impl::EntryKeyHandler(wint_t p_Key)
   int& entryPos = m_EntryPos[profileId][chatId];
   std::wstring& entryStr = m_EntryStr[profileId][chatId];
 
-  const int messageCount = m_Messages[profileId][chatId].size();
+  const int messageCount = GetShownMessageVec(profileId, chatId).size();
   int& messageOffset = m_MessageOffset[profileId][chatId];
 
   if (p_Key == keyUp)
@@ -760,7 +761,7 @@ void UiModel::Impl::OnKeyPrevPage()
   std::string profileId = m_CurrentChat.first;
   std::string chatId = m_CurrentChat.second;
 
-  const int messageCount = m_Messages[profileId][chatId].size();
+  const int messageCount = GetShownMessageVec(profileId, chatId).size();
   int& messageOffset = m_MessageOffset[profileId][chatId];
   std::stack<int>& messageOffsetStack = m_MessageOffsetStack[profileId][chatId];
 
@@ -861,7 +862,7 @@ void UiModel::Impl::OnKeyHomeFetchNext()
   std::string profileId = m_CurrentChat.first;
   std::string chatId = m_CurrentChat.second;
 
-  const int messageCount = m_Messages[profileId][chatId].size();
+  const int messageCount = GetShownMessageVec(profileId, chatId).size();
   int& messageOffset = m_MessageOffset[profileId][chatId];
   std::stack<int>& messageOffsetStack = m_MessageOffsetStack[profileId][chatId];
 
@@ -890,7 +891,7 @@ void UiModel::Impl::HomeFetchNext(const std::string& p_ProfileId, const std::str
     {
       if (p_MsgCount > 0)
       {
-        const int messageCount = m_Messages[p_ProfileId][p_ChatId].size();
+        const int messageCount = GetShownMessageVec(p_ProfileId, p_ChatId).size();
         int& messageOffset = m_MessageOffset[p_ProfileId][p_ChatId];
         std::stack<int>& messageOffsetStack = m_MessageOffsetStack[p_ProfileId][p_ChatId];
 
@@ -1064,7 +1065,7 @@ void UiModel::Impl::OnKeyDeleteMsg()
 
   const std::string& profileId = m_CurrentChat.first;
   const std::string& chatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   int& messageOffset = m_MessageOffset[profileId][chatId];
 
   auto it = std::next(messageVec.begin(), messageOffset);
@@ -1158,7 +1159,7 @@ void UiModel::Impl::OnKeyPinMsg()
 
   const std::string& profileId = m_CurrentChat.first;
   const std::string& chatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   const int messageOffset = m_MessageOffset[profileId][chatId];
 
   auto it = std::next(messageVec.begin(), messageOffset);
@@ -1204,7 +1205,7 @@ void UiModel::Impl::OnKeyOpenMsg()
 
   const std::string profileId = m_CurrentChat.first;
   const std::string chatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   const int messageOffset = m_MessageOffset[profileId][chatId];
   auto it = std::next(messageVec.begin(), messageOffset);
   if (it == messageVec.end()) return;
@@ -1240,7 +1241,7 @@ bool UiModel::Impl::GetMessageAttachmentPath(std::string& p_FilePath, DownloadFi
 
   std::string profileId = m_CurrentChat.first;
   std::string chatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   const int messageOffset = m_MessageOffset[profileId][chatId];
   const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
 
@@ -1382,7 +1383,7 @@ void UiModel::Impl::OnKeyOpenLink()
 
   std::string profileId = m_CurrentChat.first;
   std::string chatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   const int messageOffset = m_MessageOffset[profileId][chatId];
   const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
 
@@ -1912,9 +1913,10 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
             int& messageOffset = m_MessageOffset[profileId][chatId];
             if ((profileId == m_CurrentChat.first) && (chatId == m_CurrentChat.second))
             {
-              if (GetSelectMessageActive() && (messageOffset < (int)messageVec.size()))
+              const std::vector<std::string>& shownMessageVec = GetShownMessageVec(profileId, chatId);
+              if (GetSelectMessageActive() && (messageOffset < (int)shownMessageVec.size()))
               {
-                currentMessageId = messageVec[messageOffset];
+                currentMessageId = shownMessageVec[messageOffset];
               }
             }
 
@@ -1926,14 +1928,17 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
             });
             // *INDENT-ON*
 
+            RebuildStatusFilter(profileId, chatId);
+
             if ((profileId == m_CurrentChat.first) && (chatId == m_CurrentChat.second))
             {
               if (!currentMessageId.empty())
               {
-                auto it = std::find(messageVec.begin(), messageVec.end(), currentMessageId);
-                if (it != messageVec.end())
+                const std::vector<std::string>& shownMessageVec = GetShownMessageVec(profileId, chatId);
+                auto it = std::find(shownMessageVec.begin(), shownMessageVec.end(), currentMessageId);
+                if (it != shownMessageVec.end())
                 {
-                  messageOffset = it - messageVec.begin();
+                  messageOffset = it - shownMessageVec.begin();
                 }
               }
 
@@ -2006,20 +2011,22 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
 
           std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
           messages.erase(msgId);
+          RebuildStatusFilter(profileId, chatId);
 
           if (GetSelectMessageActive())
           {
             int& messageOffset = m_MessageOffset[profileId][chatId];
-            if (messageVec.empty())
+            const std::vector<std::string>& shownMessageVec = GetShownMessageVec(profileId, chatId);
+            if (shownMessageVec.empty())
             {
               messageOffset = 0;
               SetSelectMessageActive(false);
             }
             else
             {
-              if ((messageOffset + 1) > (int)messageVec.size())
+              if ((messageOffset + 1) > (int)shownMessageVec.size())
               {
-                messageOffset = (int)messageVec.size() - 1;
+                messageOffset = (int)shownMessageVec.size() - 1;
               }
             }
           }
@@ -2494,7 +2501,7 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
         LOG_TRACE("find message notify %s %s", (success ? "found" : "not found"), msgId.c_str());
         if (!msgId.empty())
         {
-          const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+          const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
           int& messageOffset = m_MessageOffset[profileId][chatId];
           std::stack<int>& messageOffsetStack = m_MessageOffsetStack[profileId][chatId];
 
@@ -2965,6 +2972,11 @@ std::string UiModel::Impl::GetChatStatus(const std::string& p_ProfileId, const s
 void UiModel::Impl::OnCurrentChatChanged()
 {
   LOG_TRACE("current chat %s %s", m_CurrentChat.first.c_str(), m_CurrentChat.second.c_str());
+  if (!m_StatusFilterSenderId.empty() && (m_CurrentChat != m_StatusFilterChat))
+  {
+    ClearStatusFilter();
+  }
+
   if ((m_CurrentChat != s_ChatNone) && IsChatHidden(m_CurrentChat.first, m_CurrentChat.second))
   {
     // chat opened by other means than next/prev (e.g. goto, unread, contact), expand its section
@@ -3005,6 +3017,12 @@ void UiModel::Impl::RequestMessagesNextChat()
 
 void UiModel::Impl::RequestMessages(const std::string& p_ProfileId, const std::string& p_ChatId)
 {
+  if (IsStatusFilterActive(p_ProfileId, p_ChatId))
+  {
+    FillStatusFilter();
+    return;
+  }
+
   std::unordered_set<std::string>& msgFromIdsRequested = m_MsgFromIdsRequested[p_ProfileId][p_ChatId];
   const std::string& oldestMessageId = m_OldestMessageId[p_ProfileId][p_ChatId];
   std::string fromId = (msgFromIdsRequested.empty() || oldestMessageId.empty()) ? "" : oldestMessageId;
@@ -3281,7 +3299,7 @@ std::unordered_map<std::string, ChatMessage>& UiModel::Impl::GetMessages(const s
 
 std::vector<std::string>& UiModel::Impl::GetMessageVec(const std::string& p_ProfileId, const std::string& p_ChatId)
 {
-  return m_MessageVec[p_ProfileId][p_ChatId];
+  return GetShownMessageVec(p_ProfileId, p_ChatId);
 }
 
 int& UiModel::Impl::GetMessageOffset(const std::string& p_ProfileId, const std::string& p_ChatId)
@@ -3634,7 +3652,7 @@ std::string UiModel::Impl::GetSelectedMessageText()
 {
   std::string profileId = m_CurrentChat.first;
   std::string chatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   const int messageOffset = m_MessageOffset[profileId][chatId];
   const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
 
@@ -3770,7 +3788,7 @@ bool UiModel::Impl::PreEditMsg(std::string& p_ProfileId, std::string& p_ChatId, 
   }
 
   p_ChatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[p_ProfileId][p_ChatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(p_ProfileId, p_ChatId);
   const int messageOffset = m_MessageOffset[p_ProfileId][p_ChatId];
   auto it = std::next(messageVec.begin(), messageOffset);
   if (it == messageVec.end())
@@ -4227,7 +4245,7 @@ bool UiModel::Impl::PreReact(std::string& p_ProfileId, std::string& p_ChatId, st
 {
   p_ProfileId = m_CurrentChat.first;
   p_ChatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[p_ProfileId][p_ChatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(p_ProfileId, p_ChatId);
   const int messageOffset = m_MessageOffset[p_ProfileId][p_ChatId];
   auto it = std::next(messageVec.begin(), messageOffset);
   if (it == messageVec.end()) return false;
@@ -4312,7 +4330,7 @@ void UiModel::Impl::OnKeyJumpQuoted()
   const std::string chatId = m_CurrentChat.second;
   std::string& oldestMessageId = m_OldestMessageId[profileId][chatId];
 
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   int& messageOffset = m_MessageOffset[profileId][chatId];
   auto it = std::next(messageVec.begin(), messageOffset);
   if (it == messageVec.end()) return;
@@ -4354,7 +4372,7 @@ void UiModel::Impl::OnKeyJumpPinned()
   std::string fromMsgId;
   if (GetSelectMessageActive())
   {
-    const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+    const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
     const int messageOffset = m_MessageOffset[profileId][chatId];
     auto it = std::next(messageVec.begin(), messageOffset);
     if (it != messageVec.end())
@@ -4390,7 +4408,7 @@ void UiModel::Impl::PerformFindNext(const std::string& p_FindText)
   std::string fromMsgId;
   if (GetSelectMessageActive())
   {
-    const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+    const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
     const int messageOffset = m_MessageOffset[profileId][chatId];
     auto it = std::next(messageVec.begin(), messageOffset);
     if (it != messageVec.end())
@@ -4422,7 +4440,7 @@ void UiModel::Impl::PerformForwardMessage(const std::pair<std::string, std::stri
   {
     profileId = m_CurrentChat.first;
     chatId = m_CurrentChat.second;
-    const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+    const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
     const int messageOffset = m_MessageOffset[profileId][chatId];
     const std::unordered_map<std::string, ChatMessage>& messages =
       m_Messages[profileId][chatId];
@@ -4495,6 +4513,172 @@ bool UiModel::Impl::IsStatusChat(const std::string& p_ChatId)
   return (p_ChatId == "status@broadcast");
 }
 
+bool UiModel::Impl::IsStatusFilterActive(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  return !m_StatusFilterSenderId.empty() && (m_StatusFilterChat.first == p_ProfileId) &&
+         (m_StatusFilterChat.second == p_ChatId);
+}
+
+std::vector<std::string>& UiModel::Impl::GetShownMessageVec(const std::string& p_ProfileId,
+                                                            const std::string& p_ChatId)
+{
+  if (IsStatusFilterActive(p_ProfileId, p_ChatId)) return m_StatusFilterVec;
+
+  return m_MessageVec[p_ProfileId][p_ChatId];
+}
+
+void UiModel::Impl::RebuildStatusFilter(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  if (!IsStatusFilterActive(p_ProfileId, p_ChatId)) return;
+
+  const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[p_ProfileId][p_ChatId];
+  m_StatusFilterVec.clear();
+  for (const auto& msgId : m_MessageVec[p_ProfileId][p_ChatId])
+  {
+    auto msgIt = messages.find(msgId);
+    if ((msgIt != messages.end()) && (msgIt->second.senderId == m_StatusFilterSenderId))
+    {
+      m_StatusFilterVec.push_back(msgId);
+    }
+  }
+}
+
+void UiModel::Impl::FillStatusFilter()
+{
+  // load older status updates of the filtered sender only, until history is filled or none remain
+  static const int blockSize = 50;
+  const std::string& profileId = m_StatusFilterChat.first;
+  const std::string& chatId = m_StatusFilterChat.second;
+  std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
+  std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const int needed = m_MessageOffset[profileId][chatId] + 1 + GetHistoryLines();
+  bool added = false;
+  while (!m_StatusFilterExhausted && ((int)m_StatusFilterVec.size() < needed))
+  {
+    int64_t beforeTime = std::numeric_limits<int64_t>::max();
+    if (!m_StatusFilterVec.empty())
+    {
+      beforeTime = messages.at(m_StatusFilterVec.back()).timeSent;
+    }
+
+    std::vector<ChatMessage> chatMessages =
+      MessageCache::FetchSenderMessagesSync(profileId, chatId, m_StatusFilterSenderId, beforeTime, blockSize);
+    m_StatusFilterExhausted = ((int)chatMessages.size() < blockSize);
+    for (const auto& chatMessage : chatMessages)
+    {
+      if (messages.insert({ chatMessage.id, chatMessage }).second)
+      {
+        messageVec.push_back(chatMessage.id);
+        m_StatusFilterLoadedIds.insert(chatMessage.id);
+        added = true;
+      }
+    }
+
+    if (chatMessages.empty()) break;
+
+    // *INDENT-OFF*
+    std::sort(messageVec.begin(), messageVec.end(),
+              [&](const std::string& lhs, const std::string& rhs) -> bool
+    {
+      return messages.at(lhs).timeSent > messages.at(rhs).timeSent;
+    });
+    // *INDENT-ON*
+
+    const size_t prevCount = m_StatusFilterVec.size();
+    RebuildStatusFilter(profileId, chatId);
+    if (m_StatusFilterVec.size() == prevCount) break;
+  }
+
+  if (added)
+  {
+    UpdateHistory();
+  }
+}
+
+void UiModel::Impl::SetStatusFilter(const std::string& p_SenderId)
+{
+  ClearStatusFilter();
+
+  const std::string& profileId = m_CurrentChat.first;
+  const std::string& chatId = m_CurrentChat.second;
+  m_StatusFilterChat = m_CurrentChat;
+  m_StatusFilterSenderId = p_SenderId;
+  m_StatusFilterExhausted = false;
+  m_MessageOffset[profileId][chatId] = 0;
+  m_MessageOffsetStack[profileId][chatId] = std::stack<int>();
+  RebuildStatusFilter(profileId, chatId);
+  FillStatusFilter();
+  UpdateList();
+  UpdateHistory();
+}
+
+void UiModel::Impl::ClearStatusFilter()
+{
+  if (m_StatusFilterSenderId.empty()) return;
+
+  // free status updates loaded only for the filter, which are outside the range loaded in sequence
+  const std::string profileId = m_StatusFilterChat.first;
+  const std::string chatId = m_StatusFilterChat.second;
+  std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
+  std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const int64_t oldestMessageTime = m_OldestMessageTime[profileId][chatId];
+  std::unordered_set<std::string> freeIds;
+  for (const auto& msgId : m_StatusFilterLoadedIds)
+  {
+    auto msgIt = messages.find(msgId);
+    if ((msgIt != messages.end()) && ((oldestMessageTime == 0) || (msgIt->second.timeSent < oldestMessageTime)))
+    {
+      freeIds.insert(msgId);
+      messages.erase(msgIt);
+    }
+  }
+
+  if (!freeIds.empty())
+  {
+    messageVec.erase(std::remove_if(messageVec.begin(), messageVec.end(),
+                                    [&](const std::string& p_MsgId) { return freeIds.count(p_MsgId) > 0; }),
+                     messageVec.end());
+  }
+
+  LOG_DEBUG("status filter cleared, freed %d of %d", (int)freeIds.size(), (int)m_StatusFilterLoadedIds.size());
+
+  m_StatusFilterSenderId.clear();
+  m_StatusFilterVec.clear();
+  m_StatusFilterLoadedIds.clear();
+  m_StatusFilterExhausted = false;
+  m_MessageOffset[profileId][chatId] = 0;
+  m_MessageOffsetStack[profileId][chatId] = std::stack<int>();
+  SetSelectMessageActive(false);
+  UpdateList();
+  UpdateHistory();
+}
+
+void UiModel::Impl::SetStatusFilterFromSelected()
+{
+  // filter by sender of selected status update, keeping it selected
+  const std::string& profileId = m_CurrentChat.first;
+  const std::string& chatId = m_CurrentChat.second;
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
+  const int messageOffset = m_MessageOffset[profileId][chatId];
+  if ((messageOffset < 0) || (messageOffset >= (int)messageVec.size())) return;
+
+  const std::string msgId = messageVec.at(messageOffset);
+  const std::string senderId = m_Messages[profileId][chatId][msgId].senderId;
+  SetStatusFilter(senderId);
+
+  auto it = std::find(m_StatusFilterVec.begin(), m_StatusFilterVec.end(), msgId);
+  const int newOffset = (it != m_StatusFilterVec.end()) ? (int)std::distance(m_StatusFilterVec.begin(), it) : 0;
+  m_MessageOffset[profileId][chatId] = newOffset;
+  SetSelectMessageActive(true);
+  m_HistoryViewOffset[profileId][chatId] = newOffset;
+  UpdateHistory();
+}
+
+std::string UiModel::Impl::GetStatusFilterSenderId()
+{
+  return m_StatusFilterSenderId;
+}
+
 int UiModel::Impl::GetFirstChatIndex()
 {
   // start at first chat, not at status updates
@@ -4549,7 +4733,7 @@ void UiModel::Impl::AddQuoteFromSelectedMessage(ChatMessage& p_ChatMessage)
 {
   const std::string profileId = m_CurrentChat.first;
   const std::string chatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   const int messageOffset = m_MessageOffset[profileId][chatId];
   const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
 
@@ -4752,6 +4936,7 @@ void UiModel::KeyHandler(wint_t p_Key)
   static wint_t keyArchiveChat = UiKeyConfig::GetKey("archive_chat");
   static wint_t keyPin = UiKeyConfig::GetKey("pin");
   static wint_t keyToggleOthers = UiKeyConfig::GetKey("toggle_others");
+  static wint_t keyStatusFilter = UiKeyConfig::GetKey("status_filter");
   static wint_t keyToggleArchived = UiKeyConfig::GetKey("toggle_archived");
   static wint_t keyEditMsg = UiKeyConfig::GetKey("edit_msg");
   static wint_t keyCancel = UiKeyConfig::GetKey("cancel");
@@ -4813,6 +4998,10 @@ void UiModel::KeyHandler(wint_t p_Key)
   else if (p_Key == keyToggleHelp)
   {
     OnKeyToggleHelp();
+  }
+  else if (p_Key == keyStatusFilter)
+  {
+    OnKeyStatusFilter();
   }
   else if (p_Key == keyToggleOthers)
   {
@@ -5324,6 +5513,12 @@ int UiModel::GetMessageOffsetLocked(const std::string& p_ProfileId, const std::s
   return GetImpl().GetMessageOffset(p_ProfileId, p_ChatId);
 }
 
+std::string UiModel::GetStatusFilterSenderIdLocked()
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().GetStatusFilterSenderId();
+}
+
 int UiModel::GetHistoryViewOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId)
 {
   nc_assert(m_ModelMutex.owns_lock());
@@ -5550,6 +5745,45 @@ void UiModel::OnKeySelectContact()
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     GetImpl().ReinitView();
   }
+}
+
+void UiModel::OnKeyStatusFilter()
+{
+  std::string profileId;
+  std::string chatId;
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    if (GetImpl().GetEditMessageActive()) return;
+
+    profileId = GetImpl().GetCurrentChat().first;
+    chatId = GetImpl().GetCurrentChat().second;
+    if (!GetImpl().IsStatusChat(chatId)) return;
+
+    // same command clears an active filter
+    if (!GetImpl().GetStatusFilterSenderId().empty())
+    {
+      GetImpl().ClearStatusFilter();
+      return;
+    }
+
+    if (GetImpl().GetSelectMessageActive())
+    {
+      GetImpl().SetStatusFilterFromSelected();
+      return;
+    }
+  }
+
+  // Open modal dialog without model mutex held
+  UiDialogParams params(this, "Status from", 0.75, 0.65);
+  UiStatusContactDialog dialog(params, profileId, chatId);
+  const bool selected = dialog.Run();
+  std::unique_lock<owned_mutex> lock(m_ModelMutex);
+  if (selected)
+  {
+    GetImpl().SetStatusFilter(dialog.GetSelectedItem().senderId);
+  }
+
+  GetImpl().ReinitView();
 }
 
 void UiModel::OnKeySelectMention()

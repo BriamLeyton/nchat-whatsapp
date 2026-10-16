@@ -191,6 +191,14 @@ void UiListView::Draw()
         const int statusAttribute = attributeStatus | ((i == index) ? attributeSelected : 0);
         const int unreadW = unreads[i] ? StrUtil::WStringWidth(wunread) : 0;
         std::string name = statusName;
+        const std::string filterSenderId = m_Model->GetStatusFilterSenderIdLocked();
+        if (!filterSenderId.empty())
+        {
+          // "◉ Status · Name" while filtered by sender
+          name += " \xc2\xb7 " + m_Model->GetContactListNameLocked(p_ChatVec[i].first, filterSenderId,
+                                                                    true /*p_AllowId*/, true /*p_AllowAlias*/);
+        }
+
         if (!emojiEnabled)
         {
           name = StrUtil::Textize(name);

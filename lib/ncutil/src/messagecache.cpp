@@ -1041,6 +1041,51 @@ std::vector<std::string> MessageCache::GetChatIdsSync(const std::string& p_Profi
   return chatIds;
 }
 
+std::vector<std::pair<std::string, int64_t>> MessageCache::GetSenderLastTimesSync(const std::string& p_ProfileId,
+                                                                                 const std::string& p_ChatId)
+{
+  std::vector<std::pair<std::string, int64_t>> senderLastTimes;
+  if (!m_CacheEnabled) return senderLastTimes;
+
+  std::unique_lock<std::mutex> lock(m_DbMutex);
+  if (!m_Dbs[p_ProfileId]) return senderLastTimes;
+
+  try
+  {
+    // *INDENT-OFF*
+    *m_Dbs[p_ProfileId] << "SELECT senderId, MAX(timeSent) FROM " + s_TableMessages + " WHERE chatId = ? "
+                           "GROUP BY senderId ORDER BY 2 DESC;" << p_ChatId >>
+      [&](const std::string& senderId, int64_t lastTime)
+      {
+        senderLastTimes.push_back(std::make_pair(senderId, lastTime));
+      };
+    // *INDENT-ON*
+  }
+  catch (const sqlite::sqlite_exception& ex)
+  {
+    HANDLE_SQLITE_EXCEPTION(ex);
+  }
+
+  return senderLastTimes;
+}
+
+std::vector<ChatMessage> MessageCache::FetchSenderMessagesSync(const std::string& p_ProfileId,
+                                                               const std::string& p_ChatId,
+                                                               const std::string& p_SenderId, int64_t p_BeforeTime,
+                                                               int p_Limit)
+{
+  std::vector<ChatMessage> chatMessages;
+  if (!m_CacheEnabled || p_SenderId.empty()) return chatMessages;
+
+  std::unique_lock<std::mutex> lock(m_DbMutex);
+  if (!m_Dbs[p_ProfileId]) return chatMessages;
+
+  PerformFetchMessagesFrom(p_ProfileId, p_ChatId, p_BeforeTime, p_Limit, chatMessages, p_SenderId);
+  LOG_DEBUG("cache sync fetch %s sender %s count %d limit %d", p_ChatId.c_str(), p_SenderId.c_str(),
+            (int)chatMessages.size(), p_Limit);
+  return chatMessages;
+}
+
 void MessageCache::Export(const std::string& p_ExportDir)
 {
   if (!m_CacheEnabled)
@@ -2254,7 +2299,8 @@ static std::string ResetFailedDownloadFileInfo(const std::string& p_FileInfo)
 
 void MessageCache::PerformFetchMessagesFrom(const std::string& p_ProfileId, const std::string& p_ChatId,
                                             const int64_t p_FromMsgIdTimeSent, const int p_Limit,
-                                            std::vector<ChatMessage>& p_ChatMessages)
+                                            std::vector<ChatMessage>& p_ChatMessages,
+                                            const std::string& p_SenderId /* = "" */)
 {
   try
   {
@@ -2262,7 +2308,8 @@ void MessageCache::PerformFetchMessagesFrom(const std::string& p_ProfileId, cons
     *m_Dbs[p_ProfileId] <<
       "SELECT id, senderId, text, quotedId, quotedText, quotedSender, fileInfo, reactions, timeSent, "
       "isOutgoing, isRead, isEdited, isDeleted, isPinned, deliveryStatus FROM " + s_TableMessages + " WHERE chatId = ? AND timeSent < ? "
-      "ORDER BY timeSent DESC LIMIT ?;" << p_ChatId << p_FromMsgIdTimeSent << p_Limit >>
+      "AND (? = '' OR senderId = ?) "
+      "ORDER BY timeSent DESC LIMIT ?;" << p_ChatId << p_FromMsgIdTimeSent << p_SenderId << p_SenderId << p_Limit >>
       [&](const std::string& id, const std::string& senderId, const std::string& text,
           const std::string& quotedId, const std::string& quotedText,
           const std::string& quotedSender, const std::string& fileInfo,

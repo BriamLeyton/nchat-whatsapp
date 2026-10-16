@@ -52,6 +52,14 @@ private:
     int GetChatSection(const std::string& p_ProfileId, const std::string& p_ChatId);
     bool IsStatusChat(const std::string& p_ChatId);
     int GetFirstChatIndex();
+    bool IsStatusFilterActive(const std::string& p_ProfileId, const std::string& p_ChatId);
+    std::vector<std::string>& GetShownMessageVec(const std::string& p_ProfileId, const std::string& p_ChatId);
+    void RebuildStatusFilter(const std::string& p_ProfileId, const std::string& p_ChatId);
+    void FillStatusFilter();
+    void SetStatusFilter(const std::string& p_SenderId);
+    void ClearStatusFilter();
+    void SetStatusFilterFromSelected();
+    std::string GetStatusFilterSenderId();
     bool GetSectionCollapsed(int p_Section);
     void SetSectionCollapsed(int p_Section, bool p_Collapsed);
     bool IsChatHidden(const std::string& p_ProfileId, const std::string& p_ChatId);
@@ -286,6 +294,13 @@ private:
     std::unordered_map<std::string, std::unordered_map<std::string, int>> m_MessageOffset;
     std::unordered_map<std::string, std::unordered_map<std::string, std::stack<int>>> m_MessageOffsetStack;
     std::unordered_map<std::string, std::unordered_map<std::string, int>> m_HistoryViewOffset;
+
+    // status updates filtered by sender, empty sender id when inactive
+    std::pair<std::string, std::string> m_StatusFilterChat;
+    std::string m_StatusFilterSenderId;
+    std::vector<std::string> m_StatusFilterVec;
+    std::unordered_set<std::string> m_StatusFilterLoadedIds;
+    bool m_StatusFilterExhausted = false;
     std::unordered_map<std::string,
                        std::unordered_map<std::string, std::unordered_set<std::string>>> m_MsgFromIdsRequested;
     std::unordered_map<std::string, std::unordered_map<std::string, bool>> m_FetchedAllCache;
@@ -389,6 +404,7 @@ public:
   bool GetFileListDialogActiveLocked();
   bool GetMessageDialogActiveLocked();
   int GetMessageOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+  std::string GetStatusFilterSenderIdLocked();
   int GetHistoryViewOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
   void SetHistoryViewOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId, int p_ViewOffset);
   std::unordered_map<std::string, ChatMessage>& GetMessagesLocked(const std::string& p_ProfileId,
@@ -444,6 +460,7 @@ private:
   void OnKeyExtCall();
   void OnKeyAutoCompose();
   void OnKeySelectMention();
+  void OnKeyStatusFilter();
   void OnKeyCut();
   void OnKeyCopy();
   void OnKeyPaste();
