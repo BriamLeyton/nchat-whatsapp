@@ -209,6 +209,8 @@ struct ChatMessage
   std::string quotedId;
   std::string quotedText;
   std::string quotedSender;
+  std::string quotedChatId; // chat of quoted message when not the same chat, not db cached
+  std::string quotedFilePath; // "image:<path>" or "video:<path>" thumbnail of quoted message, not db cached
   std::string fileInfo;
   std::string link; // only required for tgchat, sponsored msg, not db cached
   std::map<std::string, std::string> mentions; // displayName -> userId, not db cached

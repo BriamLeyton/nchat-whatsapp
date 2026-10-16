@@ -3099,7 +3099,7 @@ func WmGetMessages(connId int, chatId string, limit int, fromMsgId string, owner
 	return -1
 }
 
-func WmSendMessage(connId int, chatId string, text string, quotedId string, quotedText string, quotedSender string, filePath string, fileType string, editMsgId string, editMsgSent int, mentionsJson string) int {
+func WmSendMessage(connId int, chatId string, text string, quotedId string, quotedText string, quotedSender string, filePath string, fileType string, editMsgId string, editMsgSent int, mentionsJson string, quotedChatId string, quotedFilePath string) int {
 
 	LOG_TRACE("send message " + strconv.Itoa(connId) + ", " + chatId + ", " + text + ", " + quotedId + ", " + filePath + ", " + editMsgId)
 
@@ -3145,6 +3145,31 @@ func WmSendMessage(connId int, chatId string, text string, quotedId string, quot
 			QuotedMessage: &quotedMessage,
 			StanzaID:      &quotedId,
 			Participant:   &quotedSender,
+		}
+
+		if quotedChatId == "status@broadcast" {
+			// reply to status update, sent to author chat quoting the status with its embedded thumbnail
+			contextInfo.RemoteJID = &quotedChatId
+			thumbType, thumbPath, _ := strings.Cut(quotedFilePath, ":")
+			if thumbData, readErr := os.ReadFile(thumbPath); (len(thumbPath) > 0) && (readErr == nil) {
+				if thumbType == "video" {
+					quotedMessage = waE2E.Message{
+						VideoMessage: &waE2E.VideoMessage{
+							Caption:       &quotedText,
+							JPEGThumbnail: thumbData,
+						},
+					}
+				} else {
+					quotedMessage = waE2E.Message{
+						ImageMessage: &waE2E.ImageMessage{
+							Caption:       &quotedText,
+							JPEGThumbnail: thumbData,
+						},
+					}
+				}
+			}
+
+			LOG_INFO("send status reply " + chatId + ", " + quotedId + ", thumb " + strconv.Itoa(len(thumbPath)))
 		}
 	}
 

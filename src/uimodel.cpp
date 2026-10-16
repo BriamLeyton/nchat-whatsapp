@@ -269,8 +269,8 @@ void UiModel::Impl::OnKeySendMsg()
   AnyUserKeyInput();
   if (IsStatusChat(m_CurrentChat.second))
   {
-    // never publish a status update by accident, keep entry text
-    SetPendingNotice("Sending to Status Updates is not supported.");
+    // never publish a status update, only reply privately to selected status, keep entry text otherwise
+    SendStatusReply();
     return;
   }
 
@@ -314,6 +314,76 @@ void UiModel::Impl::SendMessage()
   UpdateEntry();
   ResetMessageOffset();
   SetHistoryInteraction(true);
+}
+
+void UiModel::Impl::SendStatusReply()
+{
+  const std::string profileId = m_CurrentChat.first;
+  const std::string chatId = m_CurrentChat.second;
+  std::wstring& entryStr = m_EntryStr[profileId][chatId];
+  int& entryPos = m_EntryPos[profileId][chatId];
+  if (entryStr.empty()) return;
+
+  if (!GetSelectMessageActive() || GetEditMessageActive())
+  {
+    SetPendingNotice("Sending to Status Updates is not supported.");
+    return;
+  }
+
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
+  const int messageOffset = m_MessageOffset[profileId][chatId];
+  auto it = std::next(messageVec.begin(), messageOffset);
+  if (it == messageVec.end()) return;
+
+  const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
+  auto mit = messages.find(*it);
+  if (mit == messages.end()) return;
+
+  const ChatMessage& status = mit->second;
+  if (status.isOutgoing)
+  {
+    SetPendingNotice("Replying to own status updates is not supported.");
+    return;
+  }
+
+  if (IsExpiredStatus(chatId, status))
+  {
+    SetPendingNotice("Replying to expired status updates is not supported.");
+    return;
+  }
+
+  // reply is sent to author chat, quoting the status update with its embedded thumbnail (never downloaded)
+  std::shared_ptr<SendMessageRequest> sendMessageRequest = std::make_shared<SendMessageRequest>();
+  sendMessageRequest->chatId = status.senderId;
+  sendMessageRequest->chatMessage.text = EntryStrToSendStr(entryStr);
+  sendMessageRequest->chatMessage.quotedId = status.id;
+  sendMessageRequest->chatMessage.quotedText = status.text;
+  sendMessageRequest->chatMessage.quotedSender = status.senderId;
+  sendMessageRequest->chatMessage.quotedChatId = chatId;
+  if (!status.fileInfo.empty())
+  {
+    const FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(status.fileInfo);
+    const MediaMeta& meta = MediaInfo::Get(profileId, status.id);
+    if (!meta.thumbPath.empty() && FileUtil::Exists(meta.thumbPath))
+    {
+      if (UiImage::IsVideoFile(fileInfo.filePath))
+      {
+        sendMessageRequest->chatMessage.quotedFilePath = "video:" + meta.thumbPath;
+      }
+      else if (UiImage::IsImageFile(fileInfo.filePath))
+      {
+        sendMessageRequest->chatMessage.quotedFilePath = "image:" + meta.thumbPath;
+      }
+    }
+  }
+
+  LOG_DEBUG("status reply %s to %s", status.id.c_str(), status.senderId.c_str());
+  SendProtocolRequest(profileId, sendMessageRequest);
+
+  entryStr.clear();
+  entryPos = 0;
+  SetSelectMessageActive(false);
+  UpdateEntry();
 }
 
 void UiModel::Impl::OnKeyOtherCommandsHelp()
@@ -2153,6 +2223,28 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
         std::shared_ptr<SendMessageNotify> sendMessageNotify = std::static_pointer_cast<SendMessageNotify>(
           p_ServiceMessage);
         LOG_TRACE(sendMessageNotify->success ? "send ok" : "send failed");
+        const ChatMessage& chatMessage = sendMessageNotify->chatMessage;
+        if (IsStatusChat(chatMessage.quotedChatId))
+        {
+          const std::string name = GetContactName(profileId, sendMessageNotify->chatId);
+          if (sendMessageNotify->success)
+          {
+            SetPendingNotice("Reply sent to " + name + ".");
+          }
+          else
+          {
+            // restore reply text in status entry, unless user typed something else meanwhile
+            std::wstring& entryStr = m_EntryStr[profileId][chatMessage.quotedChatId];
+            if (entryStr.empty())
+            {
+              entryStr = StrUtil::ToWString(chatMessage.text);
+              m_EntryPos[profileId][chatMessage.quotedChatId] = (int)entryStr.size();
+              UpdateEntry();
+            }
+
+            SetPendingNotice("Reply to " + name + " failed, please try again.");
+          }
+        }
       }
       break;
 

@@ -203,7 +203,17 @@ void UiHistoryView::Draw()
         hasQuoteLine = true;
         std::string quotedText;
         auto quotedIt = messages.find(msg.quotedId);
-        if (quotedIt != messages.end())
+        bool quotedFound = (quotedIt != messages.end());
+        if (!quotedFound && (currentChat.second != statusChatId))
+        {
+          // reply to status update (sent or received), quoted status is in the status chat
+          std::unordered_map<std::string, ChatMessage>& statusMessages =
+            m_Model->GetMessagesLocked(currentChat.first, statusChatId);
+          quotedIt = statusMessages.find(msg.quotedId);
+          quotedFound = (quotedIt != statusMessages.end());
+        }
+
+        if (quotedFound)
         {
           if (!quotedIt->second.text.empty())
           {

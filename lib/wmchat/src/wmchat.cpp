@@ -391,6 +391,8 @@ void WmChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
         std::string quotedId = sendMessageRequest->chatMessage.quotedId;
         std::string quotedText = sendMessageRequest->chatMessage.quotedText;
         std::string quotedSender = sendMessageRequest->chatMessage.quotedSender;
+        std::string quotedChatId = sendMessageRequest->chatMessage.quotedChatId;
+        std::string quotedFilePath = sendMessageRequest->chatMessage.quotedFilePath;
         std::string filePath;
         std::string fileType;
         int editMsgSent = 0;
@@ -409,7 +411,8 @@ void WmChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
                          const_cast<char*>(quotedId.c_str()), const_cast<char*>(quotedText.c_str()),
                          const_cast<char*>(quotedSender.c_str()), const_cast<char*>(filePath.c_str()),
                          const_cast<char*>(fileType.c_str()), const_cast<char*>(editMsgId.c_str()),
-                         editMsgSent, const_cast<char*>(mentionsJson.c_str()));
+                         editMsgSent, const_cast<char*>(mentionsJson.c_str()),
+                         const_cast<char*>(quotedChatId.c_str()), const_cast<char*>(quotedFilePath.c_str()));
         Status::Clear(m_ProfileId, Status::FlagSending);
 
         std::shared_ptr<SendMessageNotify> sendMessageNotify = std::make_shared<SendMessageNotify>(m_ProfileId);
@@ -449,7 +452,8 @@ void WmChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
                        const_cast<char*>(quotedId.c_str()), const_cast<char*>(quotedText.c_str()),
                        const_cast<char*>(quotedSender.c_str()), const_cast<char*>(filePath.c_str()),
                        const_cast<char*>(fileType.c_str()), const_cast<char*>(editMsgId.c_str()),
-                       editMsgSent, const_cast<char*>(editMentionsJson.c_str()));
+                       editMsgSent, const_cast<char*>(editMentionsJson.c_str()),
+                       const_cast<char*>(""), const_cast<char*>(""));
         Status::Clear(m_ProfileId, Status::FlagSending);
       }
       break;

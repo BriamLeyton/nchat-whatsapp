@@ -100,6 +100,7 @@ private:
                   bool p_WasUnread,
                   bool p_Opened = false);
     void MarkStatusOpened();
+    void SendStatusReply();
     bool IsStatusNew(const std::string& p_ProfileId, const std::string& p_ChatId, const ChatMessage& p_ChatMessage);
     void MarkStatusSeen(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_MsgId);
     void OnStatusUpdate(uint32_t p_Status);

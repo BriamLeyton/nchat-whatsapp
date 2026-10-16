@@ -865,6 +865,12 @@ downloaded (already downloaded files are still shown), and reacting to them is
 not possible. Sending messages, files or edits in Status Updates is blocked, so
 a status is never published by accident.
 
+To reply to a status update, select it, type the reply and send it: the reply
+is sent privately to the author, quoting the status update (with its embedded
+thumbnail for photos and videos, nothing is downloaded), and nchat stays in
+Status Updates. Own and expired status updates cannot be replied to. In the
+author chat, the quote shows the status update text or file.
+
 ### listdialog_show_filter
 
 Specifies whether list dialogs should display the search filter input by user.

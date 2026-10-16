@@ -74,8 +74,8 @@ func CWmGetMessages(connId int, chatId *C.char, limit int, fromMsgId *C.char, ow
 }
 
 //export CWmSendMessage
-func CWmSendMessage(connId int, chatId *C.char, text *C.char, quotedId *C.char, quotedText *C.char, quotedSender *C.char, filePath *C.char, fileType *C.char, editMsgId *C.char, editMsgSent int, mentionsJson *C.char) int {
-	return WmSendMessage(connId, C.GoString(chatId), C.GoString(text), C.GoString(quotedId), C.GoString(quotedText), C.GoString(quotedSender), C.GoString(filePath), C.GoString(fileType), C.GoString(editMsgId), editMsgSent, C.GoString(mentionsJson))
+func CWmSendMessage(connId int, chatId *C.char, text *C.char, quotedId *C.char, quotedText *C.char, quotedSender *C.char, filePath *C.char, fileType *C.char, editMsgId *C.char, editMsgSent int, mentionsJson *C.char, quotedChatId *C.char, quotedFilePath *C.char) int {
+	return WmSendMessage(connId, C.GoString(chatId), C.GoString(text), C.GoString(quotedId), C.GoString(quotedText), C.GoString(quotedSender), C.GoString(filePath), C.GoString(fileType), C.GoString(editMsgId), editMsgSent, C.GoString(mentionsJson), C.GoString(quotedChatId), C.GoString(quotedFilePath))
 }
 
 //export CWmGetGroupMembers
