@@ -62,6 +62,7 @@ void UiConfig::Init()
       ">/dev/null 2>&1" },
     { "list_archived_collapsed", "1" },
     { "list_archived_header", "ARCHIVED" },
+    { "list_locked_header", "LOCKED" },
     { "list_enabled", "1" },
     { "list_others_collapsed", "0" },
     { "list_others_header", "OTHERS" },

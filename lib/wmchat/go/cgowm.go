@@ -25,6 +25,8 @@ package main
 // extern void WmUpdateArchivedNotify(int p_ConnId, char* p_ChatId, int p_IsArchived);
 // extern void WmNewAvatarNotify(int p_ConnId, char* p_ChatId, int p_IsFull, int p_Result);
 // extern void WmCreateChatNotify(int p_ConnId, char* p_ChatId, char* p_Phone, int p_Result);
+// extern void WmUpdateLockedNotify(int p_ConnId, char* p_ChatId, int p_IsLocked);
+// extern void WmCheckSecretCodeNotify(int p_ConnId, int p_Result);
 // extern void WmUpdatePinNotify(int p_ConnId, char* p_ChatId, int p_IsPinned, int p_TimePinned);
 // extern void WmReinit(int p_ConnId);
 // extern void WmSetProtocolUiControl(int p_ConnId, int p_IsTakeControl);
@@ -78,6 +80,11 @@ func CWmGetMessages(connId int, chatId *C.char, limit int, fromMsgId *C.char, ow
 //export CWmSendMessage
 func CWmSendMessage(connId int, chatId *C.char, text *C.char, quotedId *C.char, quotedText *C.char, quotedSender *C.char, filePath *C.char, fileType *C.char, editMsgId *C.char, editMsgSent int, mentionsJson *C.char, quotedChatId *C.char, quotedFilePath *C.char) int {
 	return WmSendMessage(connId, C.GoString(chatId), C.GoString(text), C.GoString(quotedId), C.GoString(quotedText), C.GoString(quotedSender), C.GoString(filePath), C.GoString(fileType), C.GoString(editMsgId), editMsgSent, C.GoString(mentionsJson), C.GoString(quotedChatId), C.GoString(quotedFilePath))
+}
+
+//export CWmCheckSecretCode
+func CWmCheckSecretCode(connId int, code *C.char) int {
+	return WmCheckSecretCode(connId, C.GoString(code))
 }
 
 //export CWmCreateChat
@@ -204,6 +211,14 @@ func CWmUpdateMuteNotify(connId int, chatId string, isMuted int) {
 
 func CWmNewAvatarNotify(connId int, chatId string, isFull int, result int) {
 	C.WmNewAvatarNotify(C.int(connId), C.CString(chatId), C.int(isFull), C.int(result))
+}
+
+func CWmUpdateLockedNotify(connId int, chatId string, isLocked int) {
+	C.WmUpdateLockedNotify(C.int(connId), C.CString(chatId), C.int(isLocked))
+}
+
+func CWmCheckSecretCodeNotify(connId int, result int) {
+	C.WmCheckSecretCodeNotify(C.int(connId), C.int(result))
 }
 
 func CWmCreateChatNotify(connId int, chatId string, phone string, result int) {

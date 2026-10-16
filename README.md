@@ -70,6 +70,7 @@ Interactive Commands:
     Alt-d       delete/leave current chat
     Alt-e       external editor compose
     Alt-h       collapse/expand archived chats section
+    Alt-l       show/hide locked chats (asks for WhatsApp secret code)
     Alt-i       auto-compose reply
     Alt-n       search contacts, or open chat by phone number or link
     Alt-o       collapse/expand others chats section
@@ -840,6 +841,21 @@ Controlled by Alt-h in run-time.
 
 Title of the archived chats section in the chat list.
 
+### list_locked_header
+
+Title of the locked chats section in the chat list.
+
+WhatsApp locked chats (Chat Lock) are hidden in nchat, like in WhatsApp Web:
+they are not shown in the chat list, Tab navigation, unread jump, goto chat
+or contact search, and never notify. Alt-l (`toggle_locked`) asks for the
+locked chats secret code set in WhatsApp on the phone, checks it locally
+against the hash synced from WhatsApp (the code is never sent, stored or
+logged), and shows the locked chats in a section at the end of the chat list.
+Alt-l again, or restarting nchat, hides them. Locked chats are stored in
+`locked_chats` and the secret code hash in `chat_lock` in the profile
+directory; the first connection downloads the `regular_low` app state once
+to learn them (marked by `locked_synced`).
+
 ### list_enabled
 
 Specifies whether to display chat list. Controlled by Ctrl-l in run-time.
@@ -1176,6 +1192,7 @@ This configuration file holds user interface key bindings. Default content:
     toggle_emoji=KEY_CTRLY
     toggle_help=KEY_CTRLG
     toggle_list=KEY_CTRLL
+    toggle_locked=\33\154
     toggle_top=KEY_NONE
     transfer=KEY_CTRLT
     unread_chat=KEY_CTRLF

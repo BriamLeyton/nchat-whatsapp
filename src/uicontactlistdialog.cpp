@@ -218,6 +218,9 @@ void UiContactListDialog::UpdateList()
 
       if (name.empty()) continue;
 
+      // hidden locked chats are not offered
+      if (m_Model->IsChatLockedHidden(profileId, contactId)) continue;
+
       if (m_FilterStr.empty() ||
           (StrUtil::ToFold(name).find(StrUtil::ToFold(StrUtil::ToString(m_FilterStr))) != std::string::npos))
       {

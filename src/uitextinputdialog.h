@@ -14,7 +14,8 @@
 class UiTextInputDialog : public UiDialog
 {
 public:
-  UiTextInputDialog(const UiDialogParams& p_Params, const std::string& p_Message, const std::string& p_EntryStr);
+  UiTextInputDialog(const UiDialogParams& p_Params, const std::string& p_Message, const std::string& p_EntryStr,
+                    bool p_Masked = false);
   virtual ~UiTextInputDialog();
 
   bool Run();
@@ -31,4 +32,5 @@ protected:
   std::string m_Message;
   std::wstring m_EntryStr;
   int m_EntryPos = 0;
+  bool m_Masked = false; // entry shown as '*', e.g. secret codes
 };

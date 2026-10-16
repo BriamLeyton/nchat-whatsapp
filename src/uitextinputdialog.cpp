@@ -17,10 +17,11 @@
 #include "uiview.h"
 
 UiTextInputDialog::UiTextInputDialog(const UiDialogParams& p_Params, const std::string& p_Message,
-                                     const std::string& p_EntryStr)
+                                     const std::string& p_EntryStr, bool p_Masked)
   : UiDialog(p_Params)
   , m_Message(p_Message)
   , m_EntryStr(StrUtil::ToWString(p_EntryStr))
+  , m_Masked(p_Masked)
 {
   m_EntryPos = m_EntryStr.size();
   m_Model->SetMessageDialogActive(true);
@@ -126,14 +127,15 @@ void UiTextInputDialog::Draw()
 
   int offset = 0;
   std::wstring wdisp = StrUtil::ToWString(m_Message);
+  const std::wstring entryStr = m_Masked ? std::wstring(m_EntryStr.size(), L'*') : m_EntryStr;
   if (m_EntryPos < maxEntryDisplay)
   {
-    wdisp += m_EntryStr;
+    wdisp += entryStr;
   }
   else
   {
     offset = m_EntryPos - maxEntryDisplay + 1;
-    wdisp += m_EntryStr.substr(offset, maxEntryDisplay + 0);
+    wdisp += entryStr.substr(offset, maxEntryDisplay + 0);
   }
 
   int w = std::min((int)wdisp.size(), m_W - 2);

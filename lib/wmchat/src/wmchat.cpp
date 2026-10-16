@@ -707,6 +707,15 @@ void WmChat::PerformRequest(std::shared_ptr<RequestMessage> p_RequestMessage)
       }
       break;
 
+    case CheckSecretCodeRequestType:
+      {
+        std::shared_ptr<CheckSecretCodeRequest> checkSecretCodeRequest =
+          std::static_pointer_cast<CheckSecretCodeRequest>(p_RequestMessage);
+        LOG_DEBUG("check secret code");
+        CWmCheckSecretCode(m_ConnId, const_cast<char*>(checkSecretCodeRequest->code.c_str()));
+      }
+      break;
+
     case GetAvatarRequestType:
       {
         std::shared_ptr<GetAvatarRequest> getAvatarRequest =
@@ -1263,6 +1272,39 @@ void WmNewAvatarNotify(int p_ConnId, char* p_ChatId, int p_IsFull, int p_Result)
   }
 
   free(p_ChatId);
+}
+
+void WmUpdateLockedNotify(int p_ConnId, char* p_ChatId, int p_IsLocked)
+{
+  WmChat* instance = WmChat::GetInstance(p_ConnId);
+  if (instance != nullptr)
+  {
+    std::shared_ptr<UpdateLockedNotify> updateLockedNotify =
+      std::make_shared<UpdateLockedNotify>(instance->GetProfileId());
+    updateLockedNotify->chatId = std::string(p_ChatId);
+    updateLockedNotify->isLocked = p_IsLocked;
+
+    std::shared_ptr<DeferNotifyRequest> deferNotifyRequest = std::make_shared<DeferNotifyRequest>();
+    deferNotifyRequest->serviceMessage = updateLockedNotify;
+    instance->SendRequest(deferNotifyRequest);
+  }
+
+  free(p_ChatId);
+}
+
+void WmCheckSecretCodeNotify(int p_ConnId, int p_Result)
+{
+  WmChat* instance = WmChat::GetInstance(p_ConnId);
+  if (instance != nullptr)
+  {
+    std::shared_ptr<CheckSecretCodeNotify> checkSecretCodeNotify =
+      std::make_shared<CheckSecretCodeNotify>(instance->GetProfileId());
+    checkSecretCodeNotify->result = p_Result;
+
+    std::shared_ptr<DeferNotifyRequest> deferNotifyRequest = std::make_shared<DeferNotifyRequest>();
+    deferNotifyRequest->serviceMessage = checkSecretCodeNotify;
+    instance->SendRequest(deferNotifyRequest);
+  }
 }
 
 void WmCreateChatNotify(int p_ConnId, char* p_ChatId, char* p_Phone, int p_Result)

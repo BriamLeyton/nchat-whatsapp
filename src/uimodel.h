@@ -31,7 +31,8 @@ enum ChatSection
   ChatSectionPinned = 1,
   ChatSectionOthers = 2,
   ChatSectionArchived = 3,
-  ChatSectionCount = 4,
+  ChatSectionLocked = 4, // whatsapp locked chats, hidden unless shown with secret code
+  ChatSectionCount = 5,
 };
 
 // presence of contact, for chat banner colors
@@ -103,6 +104,13 @@ private:
     void SetSectionCollapsed(int p_Section, bool p_Collapsed);
     bool IsChatHidden(const std::string& p_ProfileId, const std::string& p_ChatId);
     bool SelectNearestVisibleChat();
+    std::unordered_set<std::string>& GetLockedChats(const std::string& p_ProfileId);
+    void WriteLockedChats(const std::string& p_ProfileId);
+    bool IsChatLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+    bool IsChatLockedHidden(const std::string& p_ProfileId, const std::string& p_ChatId);
+    bool GetLockedVisible();
+    void HideLockedChats();
+    void CheckSecretCode(const std::string& p_Code);
     void OnKeyToggleList();
     void OnKeyToggleTop();
     void OnKeyToggleEmoji();
@@ -338,8 +346,8 @@ private:
 
     std::pair<std::string, std::string> m_CurrentChat;
     int m_CurrentChatIndex = -1;
-    bool m_SectionCollapsed[ChatSectionCount] = { false, false, false, false };
-    int m_SectionChatCount[ChatSectionCount] = { 0, 0, 0, 0 };
+    bool m_SectionCollapsed[ChatSectionCount] = { false };
+    int m_SectionChatCount[ChatSectionCount] = { 0 };
     static const std::pair<std::string, std::string> s_ChatNone;
 
     std::string m_EditMessageId;
@@ -373,6 +381,10 @@ private:
     // chat banner: avatars requested this session, pending avatar open, status counts per contact
     std::unordered_map<std::string, std::unordered_set<std::string>> m_AvatarRequested;
     std::pair<std::string, std::string> m_AvatarOpenChat;
+    // locked chats by profile (loaded from profile dir on first use), and whether shown this session
+    std::unordered_map<std::string, std::unordered_set<std::string>> m_LockedChats;
+    std::unordered_set<std::string> m_LockedChatsLoaded;
+    bool m_LockedVisible = false;
     // message text from opened link, by profile and phone number, applied when chat is created
     std::unordered_map<std::string, std::unordered_map<std::string, std::string>> m_PendingLinkText;
     std::unordered_map<std::string, std::unordered_map<std::string, std::pair<int, int>>> m_StatusCounts;
@@ -477,6 +489,8 @@ public:
   int GetChatSectionLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
   bool GetSectionCollapsedLocked(int p_Section);
   bool IsChatHiddenLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+  bool GetLockedVisibleLocked();
+  bool IsChatLockedHidden(const std::string& p_ProfileId, const std::string& p_ChatId);
   std::string GetChatStatusLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
   bool GetChatBannerLocked(const std::string& p_ProfileId, const std::string& p_ChatId, ChatBanner& p_ChatBanner);
   std::vector<std::pair<std::string, std::string>>& GetChatVecLocked();
@@ -542,6 +556,7 @@ private:
   void OnKeySelectContact();
   void OnKeyReact();
   void OnKeyFind();
+  void OnKeyToggleLocked();
   void OnKeyFindNext();
   void OnKeyForwardMsg();
   bool MessageDialog(const std::string& p_Title, const std::string& p_Text, float p_WReq, float p_HReq);

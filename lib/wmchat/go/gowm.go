@@ -14,6 +14,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"crypto/pbkdf2"
+	"crypto/sha512"
+	"crypto/subtle"
+	"hash"
 	"io"
 	"math"
 	"mime"
@@ -34,7 +38,9 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
+	"go.mau.fi/whatsmeow/proto/waChatLockSettings"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waUserPassword"
 	"go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/store"
 
@@ -894,6 +900,7 @@ func (handler *WmEventHandler) HandleEvent(rawEvt interface{}) {
 		// connected
 		LOG_TRACE(fmt.Sprintf("%#v", evt))
 		handler.HandleConnected()
+		handler.SyncLockedChats()
 		SetState(handler.connId, Connected)
 		CWmSetStatus(handler.connId, FlagOnline)
 		CWmClearStatus(handler.connId, FlagConnecting)
@@ -934,6 +941,7 @@ func (handler *WmEventHandler) HandleEvent(rawEvt interface{}) {
 
 	case *events.AppState:
 		LOG_TRACE(fmt.Sprintf("%#v - %#v / %#v", evt, evt.Index, evt.SyncActionValue))
+		handler.HandleAppState(evt)
 
 	case *events.LoggedOut:
 		LOG_TRACE(fmt.Sprintf("%#v", evt))
@@ -997,6 +1005,197 @@ func (handler *WmEventHandler) HandleConnected() {
 	if len(client.Store.PushName) == 0 {
 		return
 	}
+}
+
+func GetChatLockPath(connPath string) string {
+	return connPath + "/chat_lock"
+}
+
+func GetLockedSyncedPath(connPath string) string {
+	return connPath + "/locked_synced"
+}
+
+// Handle app state mutations not dispatched as own events by whatsmeow (locked chats)
+func (handler *WmEventHandler) HandleAppState(evt *events.AppState) {
+	connId := handler.connId
+	if len(evt.Index) == 0 || evt.SyncActionValue == nil {
+		return
+	}
+
+	switch evt.Index[0] {
+	case appstate.IndexLock:
+		if len(evt.Index) < 2 || evt.SyncActionValue.GetLockChatAction() == nil {
+			return
+		}
+
+		var client *whatsmeow.Client = GetClient(connId)
+		if client == nil {
+			LOG_WARNING("client is nil")
+			return
+		}
+
+		jid, jidErr := types.ParseJID(evt.Index[1])
+		if jidErr != nil {
+			LOG_WARNING(fmt.Sprintf("lock jid err %#v", jidErr))
+			return
+		}
+
+		chatId := GetChatId(client, &jid, nil)
+		isLocked := evt.SyncActionValue.GetLockChatAction().GetLocked()
+		LOG_DEBUG(fmt.Sprintf("Call CWmUpdateLockedNotify %s %t", chatId, isLocked))
+		CWmUpdateLockedNotify(connId, chatId, BoolToInt(isLocked))
+
+	case appstate.IndexSettingChatLock:
+		settings := evt.SyncActionValue.GetChatLockSettings()
+		if settings == nil {
+			return
+		}
+
+		// only the secret code hash is stored, never logged
+		data, marshalErr := proto.Marshal(settings)
+		if marshalErr != nil {
+			LOG_WARNING(fmt.Sprintf("chat lock marshal err %#v", marshalErr))
+			return
+		}
+
+		if writeErr := WriteFileAtomic(GetChatLockPath(GetPath(connId)), data); writeErr != nil {
+			LOG_WARNING(fmt.Sprintf("chat lock write err %#v", writeErr))
+			return
+		}
+
+		hasCode := len(settings.GetSecretCode().GetTransformedData()) > 0
+		LOG_DEBUG(fmt.Sprintf("chat lock settings has code %t", hasCode))
+		CWmUpdateLockedNotify(connId, "", BoolToInt(hasCode))
+	}
+}
+
+// Fetch full regular_low app state once per profile, to learn current locked chats and chat lock settings
+func (handler *WmEventHandler) SyncLockedChats() {
+	connId := handler.connId
+	syncedPath := GetLockedSyncedPath(GetPath(connId))
+	if _, statErr := os.Stat(syncedPath); statErr == nil {
+		return
+	}
+
+	var client *whatsmeow.Client = GetClient(connId)
+	if client == nil {
+		LOG_WARNING("client is nil")
+		return
+	}
+
+	go func() {
+		LOG_INFO("locked chats full sync start")
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		// serialized with app state resyncs, events emitted so lock (and other regular_low) state is applied
+		appStateResyncMutex.Lock()
+		prevEmit := client.EmitAppStateEventsOnFullSync
+		client.EmitAppStateEventsOnFullSync = true
+		fetchErr := client.FetchAppState(ctx, appstate.WAPatchRegularLow, true, false)
+		client.EmitAppStateEventsOnFullSync = prevEmit
+		if fetchErr == nil {
+			appStateResyncTime[appstate.WAPatchRegularLow] = time.Now()
+		}
+		appStateResyncMutex.Unlock()
+
+		if fetchErr != nil {
+			LOG_WARNING(fmt.Sprintf("locked chats full sync err %#v", fetchErr))
+			return
+		}
+
+		if writeErr := WriteFileAtomic(syncedPath, []byte(strconv.FormatInt(time.Now().Unix(), 10))); writeErr != nil {
+			LOG_WARNING(fmt.Sprintf("locked synced write err %#v", writeErr))
+			return
+		}
+
+		LOG_INFO("locked chats full sync done")
+	}()
+}
+
+// secret code check results, matching SecretCodeResult in protocol.h
+const (
+	secretCodeResultOk     = 0
+	secretCodeResultWrong  = 1
+	secretCodeResultNoCode = 2
+)
+
+// Check locked chats secret code against hash synced from WhatsApp, locally
+func WmCheckSecretCode(connId int, code string) int {
+	LOG_TRACE("check secret code " + strconv.Itoa(connId))
+
+	go func() {
+		result := CheckSecretCode(GetPath(connId), code)
+		LOG_DEBUG("check secret code result " + strconv.Itoa(result))
+		CWmCheckSecretCodeNotify(connId, result)
+	}()
+
+	return 0
+}
+
+func CheckSecretCode(connPath string, code string) int {
+	data, readErr := os.ReadFile(GetChatLockPath(connPath))
+	if readErr != nil {
+		return secretCodeResultNoCode
+	}
+
+	settings := &waChatLockSettings.ChatLockSettings{}
+	if unmarshalErr := proto.Unmarshal(data, settings); unmarshalErr != nil {
+		LOG_WARNING(fmt.Sprintf("chat lock unmarshal err %#v", unmarshalErr))
+		return secretCodeResultNoCode
+	}
+
+	secretCode := settings.GetSecretCode()
+	expected := secretCode.GetTransformedData()
+	if len(expected) == 0 {
+		return secretCodeResultNoCode
+	}
+
+	var hashFunc func() hash.Hash
+	switch secretCode.GetTransformer() {
+	case waUserPassword.UserPassword_PBKDF2_HMAC_SHA512:
+		hashFunc = sha512.New
+	case waUserPassword.UserPassword_PBKDF2_HMAC_SHA384:
+		hashFunc = sha512.New384
+	case waUserPassword.UserPassword_NONE:
+		if subtle.ConstantTimeCompare([]byte(code), expected) == 1 {
+			return secretCodeResultOk
+		}
+		return secretCodeResultWrong
+	default:
+		LOG_WARNING(fmt.Sprintf("secret code unsupported transformer %d", secretCode.GetTransformer()))
+		return secretCodeResultNoCode
+	}
+
+	// salt is the blob argument, iterations the integer argument
+	var salt []byte
+	var iterations uint64
+	for _, arg := range secretCode.GetTransformerArg() {
+		value := arg.GetValue()
+		if blob := value.GetAsBlob(); blob != nil {
+			salt = blob
+		} else if num := value.GetAsUnsignedInteger(); num > 0 {
+			iterations = uint64(num)
+		}
+		LOG_DEBUG("secret code arg " + arg.GetKey())
+	}
+
+	if iterations == 0 {
+		LOG_WARNING("secret code missing iterations")
+		return secretCodeResultNoCode
+	}
+
+	derived, deriveErr := pbkdf2.Key(hashFunc, code, salt, int(iterations), len(expected))
+	if deriveErr != nil {
+		LOG_WARNING(fmt.Sprintf("secret code derive err %#v", deriveErr))
+		return secretCodeResultWrong
+	}
+
+	if subtle.ConstantTimeCompare(derived, expected) == 1 {
+		return secretCodeResultOk
+	}
+
+	return secretCodeResultWrong
 }
 
 func (handler *WmEventHandler) HandleReceipt(receipt *events.Receipt) {

@@ -48,6 +48,7 @@ namespace
           { "delete_chat", "Delete/leave chat" },
           { "toggle_others", "Collapse/expand others" },
           { "toggle_archived", "Collapse/expand archived" },
+          { "toggle_locked", "Show/hide locked chats" },
         },
       },
       {

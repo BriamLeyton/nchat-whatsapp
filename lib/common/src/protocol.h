@@ -100,6 +100,7 @@ enum MessageType
   FindMessageRequestType,
   GetGroupMembersRequestType,
   GetAvatarRequestType,
+  CheckSecretCodeRequestType,
   // Service messages
   ServiceMessageType,
   NewContactsNotifyType,
@@ -129,6 +130,8 @@ enum MessageType
   UpdateArchivedNotifyType,
   MoveChatNotifyType,
   NewAvatarNotifyType,
+  UpdateLockedNotifyType,
+  CheckSecretCodeNotifyType,
 };
 
 struct ContactInfo
@@ -490,6 +493,13 @@ public:
   bool isFull = false;
 };
 
+class CheckSecretCodeRequest : public RequestMessage
+{
+public:
+  virtual MessageType GetMessageType() const { return CheckSecretCodeRequestType; }
+  std::string code; // never logged or stored
+};
+
 // Service messages
 class ServiceMessage
 {
@@ -709,6 +719,32 @@ public:
   std::string chatId;
   bool isFull = false;
   int result = AvatarResultError;
+};
+
+class UpdateLockedNotify : public ServiceMessage
+{
+public:
+  explicit UpdateLockedNotify(const std::string& p_ProfileId)
+    : ServiceMessage(p_ProfileId) { }
+  virtual MessageType GetMessageType() const { return UpdateLockedNotifyType; }
+  std::string chatId; // empty for chat lock settings update, isLocked then tells if secret code is set
+  bool isLocked = false;
+};
+
+enum SecretCodeResult
+{
+  SecretCodeResultOk = 0,
+  SecretCodeResultWrong = 1,
+  SecretCodeResultNoCode = 2,
+};
+
+class CheckSecretCodeNotify : public ServiceMessage
+{
+public:
+  explicit CheckSecretCodeNotify(const std::string& p_ProfileId)
+    : ServiceMessage(p_ProfileId) { }
+  virtual MessageType GetMessageType() const { return CheckSecretCodeNotifyType; }
+  int result = SecretCodeResultWrong;
 };
 
 class MoveChatNotify : public ServiceMessage

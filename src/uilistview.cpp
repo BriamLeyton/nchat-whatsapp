@@ -69,6 +69,7 @@ void UiListView::Draw()
     UiConfig::GetStr("list_pinned_header"),
     UiConfig::GetStr("list_others_header"),
     UiConfig::GetStr("list_archived_header"),
+    UiConfig::GetStr("list_locked_header"),
   };
 
   const std::vector<std::pair<std::string, std::string>>& p_ChatVec = m_Model->GetChatVecLocked();
@@ -91,8 +92,9 @@ void UiListView::Draw()
   std::vector<std::string> names;
   std::vector<bool> unreads;
   std::vector<int> sections;
-  int sectionCounts[ChatSectionCount] = { 0, 0, 0, 0 };
-  bool sectionUnreads[ChatSectionCount] = { false, false, false, false };
+  int sectionCounts[ChatSectionCount] = { 0 };
+  bool sectionUnreads[ChatSectionCount] = { false };
+  const bool lockedVisible = m_Model->GetLockedVisibleLocked();
   for (auto& chatPair : p_ChatVec)
   {
     const std::string& name = m_Model->GetContactListNameLocked(chatPair.first, chatPair.second, true /*p_AllowId*/,
@@ -102,19 +104,30 @@ void UiListView::Draw()
     names.push_back(name);
     unreads.push_back(isUnread);
     sections.push_back(section);
+    // hidden locked chats are not part of the list at all
+    if ((section == ChatSectionLocked) && !lockedVisible) continue;
+
     ++sectionCounts[section];
     sectionUnreads[section] = sectionUnreads[section] || isUnread;
   }
 
   // headers are only shown when there are pinned or archived chats, status updates have no header
-  const bool showHeaders = ((sectionCounts[ChatSectionPinned] + sectionCounts[ChatSectionArchived]) > 0);
-  const int titledChatCount = (int)p_ChatVec.size() - sectionCounts[ChatSectionStatus];
+  const bool showHeaders =
+    ((sectionCounts[ChatSectionPinned] + sectionCounts[ChatSectionArchived] + sectionCounts[ChatSectionLocked]) > 0);
+  int titledChatCount = 0;
+  for (int section = ChatSectionPinned; section < ChatSectionCount; ++section)
+  {
+    titledChatCount += sectionCounts[section];
+  }
+
   std::vector<Row> rows;
   int selectedRow = 0;
   int prevSection = -1;
   for (int i = 0; i < (int)p_ChatVec.size(); ++i)
   {
     const int section = sections[i];
+    if ((section == ChatSectionLocked) && !lockedVisible) continue;
+
     if (showHeaders && (section != prevSection) && (section != ChatSectionStatus))
     {
       rows.push_back(Row{ -1, section });

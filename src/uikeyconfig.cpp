@@ -228,6 +228,7 @@ void UiKeyConfig::Init(bool p_MapKeys)
     { "jump_quoted", "\\33\\161" }, // alt/opt-q
     { "jump_pinned", "KEY_CTRLP" },
     { "find", "\\33\\57" }, // alt/opt-/
+    { "toggle_locked", "\\33\\154" }, // alt/opt-l
     { "find_next", "\\33\\77" }, // alt/opt-?
     { "toggle_emoji", "KEY_CTRLY" },
     { "toggle_help", "KEY_CTRLG" },

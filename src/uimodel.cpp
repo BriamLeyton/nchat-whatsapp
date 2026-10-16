@@ -182,6 +182,8 @@ int UiModel::Impl::GetChatSection(const std::string& p_ProfileId, const std::str
 {
   if (IsStatusChat(p_ChatId)) return ChatSectionStatus;
 
+  if (IsChatLocked(p_ProfileId, p_ChatId)) return ChatSectionLocked;
+
   const ChatInfo& chatInfo = m_ChatInfos[p_ProfileId][p_ChatId];
   if (chatInfo.isPinned) return ChatSectionPinned;
 
@@ -197,7 +199,7 @@ bool UiModel::Impl::GetSectionCollapsed(int p_Section)
 
 void UiModel::Impl::SetSectionCollapsed(int p_Section, bool p_Collapsed)
 {
-  if ((p_Section == ChatSectionStatus) || (p_Section == ChatSectionPinned)) return;
+  if ((p_Section == ChatSectionStatus) || (p_Section == ChatSectionPinned) || (p_Section == ChatSectionLocked)) return;
 
   m_SectionCollapsed[p_Section] = p_Collapsed;
   UiConfig::SetBool((p_Section == ChatSectionOthers) ? "list_others_collapsed" : "list_archived_collapsed",
@@ -207,12 +209,15 @@ void UiModel::Impl::SetSectionCollapsed(int p_Section, bool p_Collapsed)
 bool UiModel::Impl::IsChatHidden(const std::string& p_ProfileId, const std::string& p_ChatId)
 {
   const int section = GetChatSection(p_ProfileId, p_ChatId);
+  if (section == ChatSectionLocked) return !m_LockedVisible;
+
   if (!m_SectionCollapsed[section]) return false;
 
   // a section only collapses when there are chats in other sections (i.e. section titles are shown),
-  // status updates are not part of any titled section
+  // status updates are not part of any titled section, nor are hidden locked chats
   const int otherSectionsCount =
-    (int)m_ChatVec.size() - m_SectionChatCount[section] - m_SectionChatCount[ChatSectionStatus];
+    (int)m_ChatVec.size() - m_SectionChatCount[section] - m_SectionChatCount[ChatSectionStatus] -
+    (m_LockedVisible ? 0 : m_SectionChatCount[ChatSectionLocked]);
   return (otherSectionsCount > 0);
 }
 
@@ -388,7 +393,12 @@ void UiModel::Impl::SendStatusReply()
   // continue in author chat to see the reply, like the official app, creating it on first message
   // (existing chat opened as-is, i.e. not unarchived)
   const std::pair<std::string, std::string> authorChat(profileId, status.senderId);
-  if (m_ChatSet[profileId].count(status.senderId) > 0)
+  if (IsChatLockedHidden(profileId, status.senderId))
+  {
+    // hidden locked chat is not opened, sent notice shown in status updates
+    return;
+  }
+  else if (m_ChatSet[profileId].count(status.senderId) > 0)
   {
     GotoChat(authorChat);
   }
@@ -1424,6 +1434,88 @@ void UiModel::Impl::WriteStatusSeen(const std::string& p_ProfileId)
   FileUtil::Move(tmpPath, path);
 }
 
+std::unordered_set<std::string>& UiModel::Impl::GetLockedChats(const std::string& p_ProfileId)
+{
+  std::unordered_set<std::string>& lockedChats = m_LockedChats[p_ProfileId];
+  if (m_LockedChatsLoaded.insert(p_ProfileId).second)
+  {
+    const std::string path = FileUtil::GetApplicationDir() + "/profiles/" + p_ProfileId + "/locked_chats";
+    if (FileUtil::Exists(path))
+    {
+      std::istringstream stream(FileUtil::ReadFile(path));
+      std::string chatId;
+      while (std::getline(stream, chatId))
+      {
+        if (!chatId.empty())
+        {
+          lockedChats.insert(chatId);
+        }
+      }
+    }
+
+    LOG_DEBUG("locked chats loaded %d", (int)lockedChats.size());
+  }
+
+  return lockedChats;
+}
+
+void UiModel::Impl::WriteLockedChats(const std::string& p_ProfileId)
+{
+  std::string data;
+  for (const auto& chatId : GetLockedChats(p_ProfileId))
+  {
+    data += chatId + "\n";
+  }
+
+  const std::string path = FileUtil::GetApplicationDir() + "/profiles/" + p_ProfileId + "/locked_chats";
+  const std::string tmpPath = path + ".tmp";
+  FileUtil::WriteFile(tmpPath, data);
+  FileUtil::Move(tmpPath, path);
+}
+
+bool UiModel::Impl::IsChatLocked(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  return GetLockedChats(p_ProfileId).count(p_ChatId) > 0;
+}
+
+bool UiModel::Impl::IsChatLockedHidden(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  return !m_LockedVisible && IsChatLocked(p_ProfileId, p_ChatId);
+}
+
+bool UiModel::Impl::GetLockedVisible()
+{
+  return m_LockedVisible;
+}
+
+void UiModel::Impl::HideLockedChats()
+{
+  m_LockedVisible = false;
+  if ((m_CurrentChat != s_ChatNone) && IsChatLockedHidden(m_CurrentChat.first, m_CurrentChat.second))
+  {
+    if (SelectNearestVisibleChat())
+    {
+      OnCurrentChatChanged();
+      SetSelectMessageActive(false);
+    }
+  }
+
+  UpdateList();
+  ReinitView();
+}
+
+void UiModel::Impl::CheckSecretCode(const std::string& p_Code)
+{
+  const std::string profileId = GetDefaultProfileId();
+  if (profileId.empty()) return;
+
+  // checked locally against the hash synced from whatsapp, the code itself is never logged nor stored
+  std::shared_ptr<CheckSecretCodeRequest> checkSecretCodeRequest = std::make_shared<CheckSecretCodeRequest>();
+  checkSecretCodeRequest->code = p_Code;
+  SendProtocolRequest(profileId, checkSecretCodeRequest);
+  ReinitView();
+}
+
 bool UiModel::Impl::IsBannerChat(const std::string& p_ProfileId, const std::string& p_ChatId)
 {
   static const bool chatBannerEnabled = UiConfig::GetBool("chat_banner_enabled");
@@ -2153,6 +2245,13 @@ void UiModel::Impl::OpenChatByPhone(const std::string& p_ProfileId, const std::s
 
   // existing chat is opened without asking WhatsApp
   const std::string chatId = p_Phone + "@s.whatsapp.net";
+  if (IsChatLockedHidden(p_ProfileId, chatId))
+  {
+    SetPendingNotice("This chat is locked.");
+    ReinitView();
+    return;
+  }
+
   if (m_ChatInfos[p_ProfileId].count(chatId))
   {
     OpenCreateChat(std::make_pair(p_ProfileId, chatId));
@@ -2734,8 +2833,12 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
           }
         }
 
-        if (createChatNotify->success && !phone.empty() &&
-            m_ChatInfos[profileId].count(createChatNotify->chatInfo.id))
+        if (createChatNotify->success && !phone.empty() && IsChatLockedHidden(profileId, createChatNotify->chatInfo.id))
+        {
+          SetPendingNotice("This chat is locked.");
+        }
+        else if (createChatNotify->success && !phone.empty() &&
+                 m_ChatInfos[profileId].count(createChatNotify->chatInfo.id))
         {
           // number resolved to an existing chat, keep its chat info
           const std::string chatId = createChatNotify->chatInfo.id;
@@ -2801,6 +2904,58 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
             SortChats();
             OnCurrentChatChanged();
           }
+        }
+      }
+      break;
+
+    case UpdateLockedNotifyType:
+      {
+        std::shared_ptr<UpdateLockedNotify> updateLockedNotify =
+          std::static_pointer_cast<UpdateLockedNotify>(p_ServiceMessage);
+        const std::string& chatId = updateLockedNotify->chatId;
+        if (chatId.empty())
+        {
+          LOG_DEBUG("chat lock settings has code %d", updateLockedNotify->isLocked);
+          break;
+        }
+
+        std::unordered_set<std::string>& lockedChats = GetLockedChats(profileId);
+        const bool changed = updateLockedNotify->isLocked ? lockedChats.insert(chatId).second
+                                                          : (lockedChats.erase(chatId) > 0);
+        if (!changed) break;
+
+        LOG_DEBUG("locked notify %s is %d count %d", chatId.c_str(), updateLockedNotify->isLocked,
+                  (int)lockedChats.size());
+        WriteLockedChats(profileId);
+        SortChats();
+        if (IsCurrentChat(profileId, chatId) && IsChatHidden(profileId, chatId) && SelectNearestVisibleChat())
+        {
+          OnCurrentChatChanged();
+          SetSelectMessageActive(false);
+        }
+
+        UpdateList();
+      }
+      break;
+
+    case CheckSecretCodeNotifyType:
+      {
+        std::shared_ptr<CheckSecretCodeNotify> checkSecretCodeNotify =
+          std::static_pointer_cast<CheckSecretCodeNotify>(p_ServiceMessage);
+        LOG_DEBUG("secret code result %d", checkSecretCodeNotify->result);
+        if (checkSecretCodeNotify->result == SecretCodeResultOk)
+        {
+          m_LockedVisible = true;
+          SortChats();
+          UpdateList();
+        }
+        else if (checkSecretCodeNotify->result == SecretCodeResultNoCode)
+        {
+          SetPendingNotice("Set a secret code for locked chats in WhatsApp on your phone.");
+        }
+        else
+        {
+          SetPendingNotice("Wrong secret code.");
         }
       }
       break;
@@ -3330,7 +3485,8 @@ void UiModel::Impl::UpdateChatInfoIsUnread(const std::string& p_ProfileId, const
   std::unordered_map<std::string, ChatInfo>& profileChatInfos = m_ChatInfos[p_ProfileId];
   if (profileChatInfos.count(p_ChatId))
   {
-    if (profileChatInfos[p_ChatId].isArchived)
+    // archived and locked chats never notify
+    if (profileChatInfos[p_ChatId].isArchived || IsChatLocked(p_ProfileId, p_ChatId))
     {
       profileChatInfos[p_ChatId].isUnread = isUnread;
       return;
@@ -3466,6 +3622,8 @@ int64_t UiModel::Impl::GetLastMessageTime(const std::string& p_ProfileId, const 
 
 bool UiModel::Impl::GetChatIsUnread(const std::string& p_ProfileId, const std::string& p_ChatId)
 {
+  if (IsChatLockedHidden(p_ProfileId, p_ChatId)) return false;
+
   const ChatInfo& chatInfo = m_ChatInfos[p_ProfileId][p_ChatId];
   static const bool mutedIndicateUnread = UiConfig::GetBool("muted_indicate_unread");
   const bool indicateUnread = chatInfo.isUnread && (mutedIndicateUnread || !chatInfo.isMuted);
@@ -5781,6 +5939,7 @@ void UiModel::KeyHandler(wint_t p_Key)
   static wint_t keyJumpQuoted = UiKeyConfig::GetKey("jump_quoted");
   static wint_t keyJumpPinned = UiKeyConfig::GetKey("jump_pinned");
   static wint_t keyFind = UiKeyConfig::GetKey("find");
+  static wint_t keyToggleLocked = UiKeyConfig::GetKey("toggle_locked");
   static wint_t keyFindNext = UiKeyConfig::GetKey("find_next");
 
   static wint_t keyForwardMsg = UiKeyConfig::GetKey("forward_msg");
@@ -6025,6 +6184,10 @@ void UiModel::KeyHandler(wint_t p_Key)
   {
     OnKeyFind();
   }
+  else if (p_Key == keyToggleLocked)
+  {
+    OnKeyToggleLocked();
+  }
   else if (p_Key == keyFindNext)
   {
     OnKeyFindNext();
@@ -6126,8 +6289,17 @@ void UiModel::GetAvailableEmojis(std::set<std::string>& p_AvailableEmojis, bool&
 
 std::vector<std::pair<std::string, std::string>> UiModel::GetChatVec()
 {
+  // used by dialogs, hidden locked chats excluded
   std::unique_lock<owned_mutex> lock(m_ModelMutex);
-  return GetImpl().GetChatVec();
+  std::vector<std::pair<std::string, std::string>> chatVec;
+  for (const auto& chat : GetImpl().GetChatVec())
+  {
+    if (GetImpl().IsChatLockedHidden(chat.first, chat.second)) continue;
+
+    chatVec.push_back(chat);
+  }
+
+  return chatVec;
 }
 
 std::string UiModel::GetContactListName(const std::string& p_ProfileId, const std::string& p_ChatId, bool p_AllowId,
@@ -6249,6 +6421,18 @@ bool UiModel::GetSectionCollapsedLocked(int p_Section)
 {
   nc_assert(m_ModelMutex.owns_lock());
   return GetImpl().GetSectionCollapsed(p_Section);
+}
+
+bool UiModel::GetLockedVisibleLocked()
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().GetLockedVisible();
+}
+
+bool UiModel::IsChatLockedHidden(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  std::unique_lock<owned_mutex> lock(m_ModelMutex);
+  return GetImpl().IsChatLockedHidden(p_ProfileId, p_ChatId);
 }
 
 bool UiModel::IsChatHiddenLocked(const std::string& p_ProfileId, const std::string& p_ChatId)
@@ -6783,6 +6967,52 @@ void UiModel::OnKeyReact()
     std::string emoji = StrUtil::ToString(dialog.GetSelectedEmoji(true /*p_EmojiEnabled*/));
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     GetImpl().SetReact(profileId, chatId, senderId, msgId, selfEmoji, emoji);
+  }
+  else
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    GetImpl().ReinitView();
+  }
+}
+
+void UiModel::OnKeyToggleLocked()
+{
+  // Pre-req
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    if (GetImpl().GetEditMessageActive()) return;
+
+    if (GetImpl().GetLockedVisible())
+    {
+      GetImpl().HideLockedChats();
+      return;
+    }
+
+    // secret code hash is synced from whatsapp to profile dir, no point asking without it
+    const std::string profileId = GetImpl().GetDefaultProfileId();
+    if (!FileUtil::Exists(FileUtil::GetApplicationDir() + "/profiles/" + profileId + "/chat_lock"))
+    {
+      GetImpl().SetPendingNotice("Set a secret code for locked chats in WhatsApp on your phone.");
+      GetImpl().ReinitView();
+      return;
+    }
+  }
+
+  // Open modal dialog without model mutex held
+  UiDialogParams params(this, "Locked Chats", 0.5, 5);
+  UiTextInputDialog textInputDialog(params, "Secret code: ", "", true /*p_Masked*/);
+  if (textInputDialog.Run())
+  {
+    std::string code = textInputDialog.GetInput();
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    if (code.empty())
+    {
+      GetImpl().ReinitView();
+      return;
+    }
+
+    GetImpl().CheckSecretCode(code);
+    std::fill(code.begin(), code.end(), '\0');
   }
   else
   {
