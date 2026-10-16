@@ -8,9 +8,11 @@
 #include "uimodel.h"
 
 #include <algorithm>
+#include <thread>
 
 #include <ncurses.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "appconfig.h"
@@ -69,6 +71,10 @@ void UiModel::Impl::Init()
 
 void UiModel::Impl::Cleanup()
 {
+  if (m_StatusVideoCleanupThread.joinable())
+  {
+    m_StatusVideoCleanupThread.join();
+  }
 }
 
 void UiModel::Impl::AnyUserKeyInput()
@@ -1989,6 +1995,16 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
             SetHistoryInteraction(false);
           }
 
+          if (IsStatusChat(chatId))
+          {
+            for (const auto& chatMessage : chatMessages)
+            {
+              QueueStatusPrefetch(profileId, chatId, chatMessage.id);
+            }
+
+            ProcessStatusPrefetch();
+          }
+
           const std::pair<std::string, std::string>& nextChat = GetNextChat();
           if ((profileId == nextChat.first) && (chatId == nextChat.second))
           {
@@ -2155,6 +2171,12 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
         if (mit != messages.end())
         {
           mit->second.fileInfo = fileInfoStr;
+        }
+
+        if (!m_StatusPrefetchInFlightId.empty() && (msgId == m_StatusPrefetchInFlightId))
+        {
+          m_StatusPrefetchInFlightId.clear();
+          ProcessStatusPrefetch();
         }
 
         if (downloadFileAction == DownloadFileActionOpen)
@@ -2594,6 +2616,7 @@ bool UiModel::Impl::Process()
   }
 
   ProcessTimers();
+  ProcessStatusVideoCleanup();
 
   if (MediaInfo::TakePosterUpdated())
   {
@@ -2614,6 +2637,9 @@ void UiModel::Impl::ProcessTimers()
   if (elapsedMs > 200)
   {
     lastTimeMs = nowTimeMs;
+
+    StartStatusVideoCleanup();
+    ProcessStatusPrefetch();
 
     static const int autoSelectChatTimeoutSec = UiConfig::GetNum("auto_select_chat_timeout_sec");
     if (!IsCurrentChatSet() && (autoSelectChatTimeoutSec != 0) && (m_LastSyncMessageTime != 0))
@@ -4679,6 +4705,160 @@ void UiModel::Impl::SetStatusFilter(const std::string& p_SenderId)
   RebuildStatusFilter(profileId, chatId);
   FillStatusFilter();
   UpdateList();
+  UpdateHistory();
+}
+
+bool UiModel::Impl::IsStatusPrefetchWanted(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                            const std::string& p_MsgId)
+{
+  static const bool statusPrefetch = UiConfig::GetBool("status_prefetch");
+  static const uint64_t videoMaxBytes =
+    (uint64_t)std::max(0, UiConfig::GetNum("status_prefetch_video_max_mb")) * 1024 * 1024;
+  if (!statusPrefetch || !IsStatusChat(p_ChatId)) return false;
+
+  const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[p_ProfileId][p_ChatId];
+  auto mit = messages.find(p_MsgId);
+  if (mit == messages.end()) return false;
+
+  const ChatMessage& chatMessage = mit->second;
+  if (chatMessage.fileInfo.empty() || IsExpiredStatus(p_ChatId, chatMessage)) return false;
+
+  const FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(chatMessage.fileInfo);
+  if ((fileInfo.fileStatus != FileStatusNotDownloaded) || fileInfo.fileId.empty()) return false;
+
+  if (UiImage::IsImageFile(fileInfo.filePath)) return true;
+
+  if (UiImage::IsVideoFile(fileInfo.filePath))
+  {
+    // videos only when size is known (from media metadata) and within limit
+    const MediaMeta& meta = MediaInfo::Get(p_ProfileId, p_MsgId);
+    return (meta.fileLength > 0) && (meta.fileLength <= videoMaxBytes);
+  }
+
+  return false;
+}
+
+void UiModel::Impl::QueueStatusPrefetch(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                        const std::string& p_MsgId)
+{
+  if (m_StatusPrefetchQueued.count(p_MsgId)) return;
+
+  if (!IsStatusPrefetchWanted(p_ProfileId, p_ChatId, p_MsgId)) return;
+
+  LOG_DEBUG("queue status prefetch %s", p_MsgId.c_str());
+  m_StatusPrefetchQueued.insert(p_MsgId);
+  m_StatusPrefetchQueue.push_back(std::make_tuple(p_ProfileId, p_ChatId, p_MsgId));
+}
+
+void UiModel::Impl::ProcessStatusPrefetch()
+{
+  static const int64_t inFlightTimeoutMs = 120 * 1000;
+  const int64_t nowMs = TimeUtil::GetCurrentTimeMSec();
+  if (!m_StatusPrefetchInFlightId.empty())
+  {
+    if ((nowMs - m_StatusPrefetchInFlightTime) < inFlightTimeoutMs) return;
+
+    LOG_WARNING("status prefetch %s timed out", m_StatusPrefetchInFlightId.c_str());
+    m_StatusPrefetchInFlightId.clear();
+  }
+
+  // keep queue while offline, downloads would fail
+  if (!(Status::Get(Status::FlagOnline) & Status::FlagOnline)) return;
+
+  while (!m_StatusPrefetchQueue.empty())
+  {
+    const std::string profileId = std::get<0>(m_StatusPrefetchQueue.front());
+    const std::string chatId = std::get<1>(m_StatusPrefetchQueue.front());
+    const std::string msgId = std::get<2>(m_StatusPrefetchQueue.front());
+    m_StatusPrefetchQueue.pop_front();
+
+    // re-check, may have expired or been downloaded (ex: opened by user) while queued
+    if (!IsStatusPrefetchWanted(profileId, chatId, msgId)) continue;
+
+    const ChatMessage& chatMessage = m_Messages[profileId][chatId][msgId];
+    const FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(chatMessage.fileInfo);
+    LOG_DEBUG("status prefetch %s (%d queued)", msgId.c_str(), (int)m_StatusPrefetchQueue.size());
+    m_StatusPrefetchInFlightId = msgId;
+    m_StatusPrefetchInFlightTime = nowMs;
+    DownloadAttachment(profileId, chatId, msgId, fileInfo.fileId, DownloadFileActionNone);
+    UpdateHistory();
+    return;
+  }
+}
+
+void UiModel::Impl::StartStatusVideoCleanup()
+{
+  static const int retentionDays = UiConfig::GetNum("status_video_retention_days");
+  if (m_StatusVideoCleanupStarted || (retentionDays <= 0) || m_Protocols.empty()) return;
+
+  m_StatusVideoCleanupStarted = true;
+
+  std::vector<std::string> profileIds;
+  for (const auto& protocol : m_Protocols)
+  {
+    profileIds.push_back(protocol.first);
+  }
+
+  const int64_t beforeTime = TimeUtil::GetCurrentTimeMSec() - ((int64_t)retentionDays * 24 * 3600 * 1000);
+  m_StatusVideoCleanupThread = std::thread([this, profileIds, beforeTime]()
+  {
+    static const std::string statusChatId = "status@broadcast";
+    for (const auto& profileId : profileIds)
+    {
+      int count = 0;
+      uint64_t bytes = 0;
+      const std::vector<std::pair<std::string, std::string>> fileInfos =
+        MessageCache::FetchFileInfosSync(profileId, statusChatId, beforeTime);
+      for (const auto& msgIdFileInfo : fileInfos)
+      {
+        FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(msgIdFileInfo.second);
+        if (!UiImage::IsVideoFile(fileInfo.filePath) || !FileUtil::Exists(fileInfo.filePath)) continue;
+
+        struct stat st;
+        const uint64_t size = (stat(fileInfo.filePath.c_str(), &st) == 0) ? (uint64_t)st.st_size : 0;
+        if (remove(fileInfo.filePath.c_str()) != 0)
+        {
+          LOG_WARNING("remove %s failed", fileInfo.filePath.c_str());
+          continue;
+        }
+
+        ++count;
+        bytes += size;
+        fileInfo.fileStatus = FileStatusNotDownloaded;
+        const std::string fileInfoStr = ProtocolUtil::FileInfoToHex(fileInfo);
+        MessageCache::UpdateMessageFileInfo(profileId, statusChatId, msgIdFileInfo.first, fileInfoStr);
+
+        std::lock_guard<std::mutex> lock(m_StatusVideoCleanupMutex);
+        m_StatusVideoCleanupResults.push_back(std::make_tuple(profileId, msgIdFileInfo.first, fileInfoStr));
+      }
+
+      LOG_INFO("status video cleanup %s removed %d files %llu MB", profileId.c_str(), count,
+               (unsigned long long)(bytes / (1024 * 1024)));
+    }
+  });
+}
+
+void UiModel::Impl::ProcessStatusVideoCleanup()
+{
+  std::vector<std::tuple<std::string, std::string, std::string>> results;
+  {
+    std::lock_guard<std::mutex> lock(m_StatusVideoCleanupMutex);
+    results.swap(m_StatusVideoCleanupResults);
+  }
+
+  if (results.empty()) return;
+
+  static const std::string statusChatId = "status@broadcast";
+  for (const auto& result : results)
+  {
+    std::unordered_map<std::string, ChatMessage>& messages = m_Messages[std::get<0>(result)][statusChatId];
+    auto mit = messages.find(std::get<1>(result));
+    if (mit != messages.end())
+    {
+      mit->second.fileInfo = std::get<2>(result);
+    }
+  }
+
   UpdateHistory();
 }
 

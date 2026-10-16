@@ -288,6 +288,10 @@ public:
   static std::vector<std::string> GetChatIdsSync(const std::string& p_ProfileId);
   static std::vector<std::pair<std::string, int64_t>> GetSenderLastTimesSync(const std::string& p_ProfileId,
                                                                              const std::string& p_ChatId);
+  // Returns pairs of message id and file info of messages with attachment sent before p_BeforeTime
+  static std::vector<std::pair<std::string, std::string>> FetchFileInfosSync(const std::string& p_ProfileId,
+                                                                              const std::string& p_ChatId,
+                                                                              int64_t p_BeforeTime);
   static std::vector<ChatMessage> FetchSenderMessagesSync(const std::string& p_ProfileId, const std::string& p_ChatId,
                                                           const std::string& p_SenderId, int64_t p_BeforeTime,
                                                           int p_Limit);

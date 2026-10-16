@@ -7,12 +7,16 @@
 
 #pragma once
 
+#include <deque>
 #include <mutex>
 #include <set>
 #include <stack>
 #include <string>
+#include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "apputil.h"
 #include "owned_mutex.h"
@@ -61,6 +65,13 @@ private:
     void FillStatusFilter();
     void SetStatusFilter(const std::string& p_SenderId);
     void ClearStatusFilter();
+    void QueueStatusPrefetch(const std::string& p_ProfileId, const std::string& p_ChatId,
+                             const std::string& p_MsgId);
+    bool IsStatusPrefetchWanted(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                const std::string& p_MsgId);
+    void ProcessStatusPrefetch();
+    void StartStatusVideoCleanup();
+    void ProcessStatusVideoCleanup();
     void SetStatusFilterFromSelected();
     std::string GetStatusFilterSenderId();
     bool GetSectionCollapsed(int p_Section);
@@ -304,6 +315,18 @@ private:
     std::vector<std::string> m_StatusFilterVec;
     std::unordered_set<std::string> m_StatusFilterLoadedIds;
     bool m_StatusFilterExhausted = false;
+
+    // status prefetch queue (one download at a time), entries are profile id, chat id, msg id
+    std::deque<std::tuple<std::string, std::string, std::string>> m_StatusPrefetchQueue;
+    std::unordered_set<std::string> m_StatusPrefetchQueued;
+    std::string m_StatusPrefetchInFlightId;
+    int64_t m_StatusPrefetchInFlightTime = 0;
+
+    // status video cleanup (background), results applied to loaded messages under model mutex
+    bool m_StatusVideoCleanupStarted = false;
+    std::thread m_StatusVideoCleanupThread;
+    std::mutex m_StatusVideoCleanupMutex;
+    std::vector<std::tuple<std::string, std::string, std::string>> m_StatusVideoCleanupResults;
 
     // notice from key action, shown after the action without model mutex held
     std::string m_PendingNotice;

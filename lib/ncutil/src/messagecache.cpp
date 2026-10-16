@@ -1069,6 +1069,35 @@ std::vector<std::pair<std::string, int64_t>> MessageCache::GetSenderLastTimesSyn
   return senderLastTimes;
 }
 
+std::vector<std::pair<std::string, std::string>> MessageCache::FetchFileInfosSync(const std::string& p_ProfileId,
+                                                                                  const std::string& p_ChatId,
+                                                                                  int64_t p_BeforeTime)
+{
+  std::vector<std::pair<std::string, std::string>> fileInfos;
+  if (!m_CacheEnabled) return fileInfos;
+
+  std::unique_lock<std::mutex> lock(m_DbMutex);
+  if (!m_Dbs[p_ProfileId]) return fileInfos;
+
+  try
+  {
+    // *INDENT-OFF*
+    *m_Dbs[p_ProfileId] << "SELECT id, fileInfo FROM " + s_TableMessages + " WHERE chatId = ? AND timeSent < ? "
+                           "AND fileInfo != '';" << p_ChatId << p_BeforeTime >>
+      [&](const std::string& id, const std::string& fileInfo)
+      {
+        fileInfos.push_back(std::make_pair(id, fileInfo));
+      };
+    // *INDENT-ON*
+  }
+  catch (const sqlite::sqlite_exception& ex)
+  {
+    HANDLE_SQLITE_EXCEPTION(ex);
+  }
+
+  return fileInfos;
+}
+
 std::vector<ChatMessage> MessageCache::FetchSenderMessagesSync(const std::string& p_ProfileId,
                                                                const std::string& p_ChatId,
                                                                const std::string& p_SenderId, int64_t p_BeforeTime,

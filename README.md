@@ -522,6 +522,9 @@ This configuration file holds general user interface settings. Default content:
     spell_check_command=
     status_broadcast=1
     status_enabled=1
+    status_prefetch=1
+    status_prefetch_video_max_mb=16
+    status_video_retention_days=0
     syncing_indicator=⇄
     tab_size=4
     terminal_bell_active=0
@@ -893,6 +896,26 @@ Specifies (WhatsApp) Status Updates chat level of visibility:
 ### status_enabled
 
 Specifies whether to display status bar.
+
+### status_prefetch
+
+Specifies whether to download attachments of status updates (less than 24 hours
+old) in background as they arrive, like the official app. Images are always
+prefetched, videos only up to `status_prefetch_video_max_mb` (videos of unknown
+size are not prefetched). Prefetches are sent one at a time, so sending
+messages does not wait for the whole queue, and are held while offline.
+
+### status_prefetch_video_max_mb
+
+Specifies the max size in MB of status update videos to prefetch.
+
+### status_video_retention_days
+
+Specifies the number of days to keep downloaded videos of status updates. On
+startup, video files of older status updates are deleted in background, and
+marked as not downloaded (being expired they are never downloaded again).
+Images, poster frames, thumbnails and metadata are kept. Default 0 never
+deletes.
 
 ### syncing_indicator
 
