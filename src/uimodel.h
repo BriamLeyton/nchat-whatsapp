@@ -97,7 +97,9 @@ private:
     void OnKeyEnd();
     void HomeFetchNext(const std::string& p_ProfileId, const std::string& p_ChatId, int p_MsgCount);
     void MarkRead(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_MsgId,
-                  bool p_WasUnread);
+                  bool p_WasUnread,
+                  bool p_Opened = false);
+    void MarkStatusOpened();
     void OnStatusUpdate(uint32_t p_Status);
     void DownloadAttachment(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_MsgId,
                             const std::string& p_FileId, DownloadFileAction p_DownloadFileAction);

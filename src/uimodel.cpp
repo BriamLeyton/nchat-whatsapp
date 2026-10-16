@@ -969,8 +969,11 @@ void UiModel::Impl::ResetMessageOffset()
 }
 
 void UiModel::Impl::MarkRead(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_MsgId,
-                             bool p_WasUnread)
+                             bool p_WasUnread, bool p_Opened /*= false*/)
 {
+  // Status updates are only marked read when opened (open / open_msg), not when shown
+  if (IsStatusChat(p_ChatId) && !p_Opened) return;
+
   // Generally only mark read if message was unread, except if protocol needs to know every view
   const bool markReadEveryView = HasProtocolFeature(p_ProfileId, FeatureMarkReadEveryView);
   if (!markReadEveryView && !p_WasUnread) return;
@@ -1224,11 +1227,35 @@ void UiModel::Impl::OnKeyPinMsg()
   SendProtocolRequest(profileId, pinMessageRequest);
 }
 
+void UiModel::Impl::MarkStatusOpened()
+{
+  if (!GetSelectMessageActive()) return;
+
+  const std::string profileId = m_CurrentChat.first;
+  const std::string chatId = m_CurrentChat.second;
+  if (!IsStatusChat(chatId)) return;
+
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
+  const int messageOffset = m_MessageOffset[profileId][chatId];
+  auto it = std::next(messageVec.begin(), messageOffset);
+  if (it == messageVec.end()) return;
+
+  const std::string msgId = *it;
+  const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
+  auto mit = messages.find(msgId);
+  if ((mit == messages.end()) || mit->second.isOutgoing || mit->second.isRead) return;
+
+  LOG_DEBUG("status opened %s", msgId.c_str());
+  MarkRead(profileId, chatId, msgId, true /*p_WasUnread*/, true /*p_Opened*/);
+}
+
 void UiModel::Impl::OnKeyOpenMsg()
 {
   AnyUserKeyInput();
 
   if (!GetSelectMessageActive() || GetEditMessageActive()) return;
+
+  MarkStatusOpened();
 
   static const std::string openCmd = []()
   {
@@ -1330,6 +1357,7 @@ void UiModel::Impl::OnKeyOpenAttachment(std::string p_FilePath /*= std::string()
   if (p_FilePath.empty())
   {
     // user-triggered call
+    MarkStatusOpened();
     if (!GetMessageAttachmentPath(p_FilePath, DownloadFileActionOpen)) return;
   }
   else
