@@ -385,11 +385,16 @@ void UiModel::Impl::SendStatusReply()
   SetSelectMessageActive(false);
   UpdateEntry();
 
-  // continue in author chat to see the reply, like the official app (stay if no chat with author yet)
+  // continue in author chat to see the reply, like the official app, creating it on first message
+  // (existing chat opened as-is, i.e. not unarchived)
   const std::pair<std::string, std::string> authorChat(profileId, status.senderId);
   if (m_ChatSet[profileId].count(status.senderId) > 0)
   {
     GotoChat(authorChat);
+  }
+  else
+  {
+    OpenCreateChat(authorChat);
   }
 }
 

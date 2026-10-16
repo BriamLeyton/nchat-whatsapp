@@ -18,7 +18,7 @@ En `OnKeySendMsg`, si el chat actual es Status:
   - cita del estado seleccionado, con `quotedChatId = "status@broadcast"`;
   - `quotedFilePath`: la miniatura del estado (`meta->thumbPath`), si existe y es foto o video;
   - después se limpia la entrada y se sale de la selección;
-  - se pasa al chat del autor con `GotoChat`, si ya está en la lista; si no, se queda en Status;
+  - se pasa al chat del autor con `GotoChat` si ya existe, sin desarchivarlo; si no existe (primer mensaje), con `OpenCreateChat`, que lo crea como al abrir un contacto;
   - con el resultado del envío (`SendMessageNotify`): si sigue en Status, "Reply sent to <nombre>."; si falló, "Reply to <nombre> failed, please try again from Status Updates." y el texto vuelve a la entrada de Status si está vacía.
 
 Pasar al chat del autor evita que el aviso de éxito interrumpa la navegación por Status, y muestra la respuesta enviada, como en la app.
