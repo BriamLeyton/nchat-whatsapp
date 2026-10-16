@@ -204,7 +204,10 @@ void UiHistoryView::Draw()
           (AppConfig::GetNum("attachment_prefetch") == AttachmentPrefetchAll);
         static const bool isAttachmentPrefetchSelected =
           (AppConfig::GetNum("attachment_prefetch") == AttachmentPrefetchSelected);
-        if (p_Final && (isAttachmentPrefetchAll || (isSelectedMessage && isAttachmentPrefetchSelected) || isInlineImage))
+        // attachments of expired status updates are never downloaded
+        const bool isExpiredStatus = m_Model->IsExpiredStatusLocked(currentChat.second, msg);
+        if (p_Final && !isExpiredStatus &&
+            (isAttachmentPrefetchAll || (isSelectedMessage && isAttachmentPrefetchSelected) || isInlineImage))
         {
           if (!UiModel::IsAttachmentDownloaded(fileInfo) && UiModel::IsAttachmentDownloadable(fileInfo))
           {
@@ -216,7 +219,11 @@ void UiHistoryView::Draw()
 
         std::string fileName = FileUtil::BaseName(fileInfo.filePath);
         std::string fileStatus;
-        if (fileInfo.fileStatus == FileStatusNone)
+        if (isExpiredStatus && (fileInfo.fileStatus != FileStatusDownloaded))
+        {
+          // expired status attachment not downloaded, show plain attachment line
+        }
+        else if (fileInfo.fileStatus == FileStatusNone)
         {
           // should not happen
           static const std::string statusNone = " -";

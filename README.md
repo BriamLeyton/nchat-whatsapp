@@ -783,6 +783,12 @@ In Status Updates, Alt-u filters by the contact of the selected status, or
 opens a dialog of contacts with status updates when no status is selected.
 Alt-u again, or leaving Status Updates, removes the filter.
 
+Status updates older than 24 hours are local only: viewing them marks them
+read in nchat without sending read receipts, their attachments are never
+downloaded (already downloaded files are still shown), and reacting to them is
+not possible. Sending messages, files or edits in Status Updates is blocked, so
+a status is never published by accident.
+
 ### listdialog_show_filter
 
 Specifies whether list dialogs should display the search filter input by user.

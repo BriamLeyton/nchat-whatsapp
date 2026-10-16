@@ -52,6 +52,9 @@ private:
     int GetChatSection(const std::string& p_ProfileId, const std::string& p_ChatId);
     bool IsStatusChat(const std::string& p_ChatId);
     int GetFirstChatIndex();
+    bool IsExpiredStatus(const std::string& p_ChatId, const ChatMessage& p_ChatMessage);
+    void SetPendingNotice(const std::string& p_Notice);
+    std::string TakePendingNotice();
     bool IsStatusFilterActive(const std::string& p_ProfileId, const std::string& p_ChatId);
     std::vector<std::string>& GetShownMessageVec(const std::string& p_ProfileId, const std::string& p_ChatId);
     void RebuildStatusFilter(const std::string& p_ProfileId, const std::string& p_ChatId);
@@ -301,6 +304,9 @@ private:
     std::vector<std::string> m_StatusFilterVec;
     std::unordered_set<std::string> m_StatusFilterLoadedIds;
     bool m_StatusFilterExhausted = false;
+
+    // notice from key action, shown after the action without model mutex held
+    std::string m_PendingNotice;
     std::unordered_map<std::string,
                        std::unordered_map<std::string, std::unordered_set<std::string>>> m_MsgFromIdsRequested;
     std::unordered_map<std::string, std::unordered_map<std::string, bool>> m_FetchedAllCache;
@@ -404,6 +410,7 @@ public:
   bool GetFileListDialogActiveLocked();
   bool GetMessageDialogActiveLocked();
   int GetMessageOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+  bool IsExpiredStatusLocked(const std::string& p_ChatId, const ChatMessage& p_ChatMessage);
   std::string GetStatusFilterSenderIdLocked();
   int GetHistoryViewOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
   void SetHistoryViewOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId, int p_ViewOffset);

@@ -259,6 +259,13 @@ void UiModel::Impl::OnKeyToggleEmoji()
 void UiModel::Impl::OnKeySendMsg()
 {
   AnyUserKeyInput();
+  if (IsStatusChat(m_CurrentChat.second))
+  {
+    // never publish a status update by accident, keep entry text
+    SetPendingNotice("Sending to Status Updates is not supported.");
+    return;
+  }
+
   bool editMessageActive = GetEditMessageActive();
   if (editMessageActive)
   {
@@ -985,6 +992,19 @@ void UiModel::Impl::MarkRead(const std::string& p_ProfileId, const std::string& 
     senderId = mit->second.senderId;
   }
 
+  if ((mit != messages.end()) && IsExpiredStatus(p_ChatId, mit->second))
+  {
+    // expired status updates are marked read locally only, no read receipt sent
+    if (p_WasUnread)
+    {
+      MessageCache::UpdateMessageIsRead(p_ProfileId, p_ChatId, p_MsgId, true);
+    }
+
+    UpdateChatInfoIsUnread(p_ProfileId, p_ChatId);
+    UpdateList();
+    return;
+  }
+
   std::shared_ptr<MarkMessageReadRequest> markMessageReadRequest = std::make_shared<MarkMessageReadRequest>();
   markMessageReadRequest->chatId = p_ChatId;
   markMessageReadRequest->msgId = p_MsgId;
@@ -1036,6 +1056,17 @@ void UiModel::Impl::DownloadAttachment(const std::string& p_ProfileId, const std
                                        const std::string& p_MsgId, const std::string& p_FileId,
                                        DownloadFileAction p_DownloadFileAction)
 {
+  {
+    // never download attachments of expired status updates, single point for all downloads
+    const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[p_ProfileId][p_ChatId];
+    auto mit = messages.find(p_MsgId);
+    if ((mit != messages.end()) && IsExpiredStatus(p_ChatId, mit->second))
+    {
+      LOG_DEBUG("skip download of expired status %s", p_MsgId.c_str());
+      return;
+    }
+  }
+
   std::shared_ptr<DownloadFileRequest> downloadFileRequest = std::make_shared<DownloadFileRequest>();
   downloadFileRequest->chatId = p_ChatId;
   downloadFileRequest->msgId = p_MsgId;
@@ -1271,6 +1302,10 @@ bool UiModel::Impl::GetMessageAttachmentPath(std::string& p_FilePath, DownloadFi
   {
     p_FilePath = fileInfo.filePath;
     return true;
+  }
+  else if (IsExpiredStatus(chatId, mit->second))
+  {
+    SetPendingNotice("Expired status, attachment not available.");
   }
   else if (UiModel::Impl::IsAttachmentDownloadable(fileInfo, true /*p_AllowRetryFailed*/))
   {
@@ -4258,6 +4293,11 @@ bool UiModel::Impl::PreReact(std::string& p_ProfileId, std::string& p_ChatId, st
     LOG_WARNING("message %s missing", p_MsgId.c_str());
     return false;
   }
+  else if (IsExpiredStatus(p_ChatId, mit->second))
+  {
+    SetPendingNotice("Expired status, cannot react.");
+    return false;
+  }
   else
   {
     p_SenderId = mit->second.senderId;
@@ -4433,6 +4473,12 @@ void UiModel::Impl::ForwardMessage(const std::pair<std::string, std::string>& p_
 
 void UiModel::Impl::PerformForwardMessage(const std::pair<std::string, std::string>& p_Chat)
 {
+  if (IsStatusChat(p_Chat.second))
+  {
+    SetPendingNotice("Sending to Status Updates is not supported.");
+    return;
+  }
+
   ChatMessage message;
   std::string profileId;
   std::string chatId;
@@ -4511,6 +4557,24 @@ void UiModel::Impl::PerformForwardMessage(const std::pair<std::string, std::stri
 bool UiModel::Impl::IsStatusChat(const std::string& p_ChatId)
 {
   return (p_ChatId == "status@broadcast");
+}
+
+bool UiModel::Impl::IsExpiredStatus(const std::string& p_ChatId, const ChatMessage& p_ChatMessage)
+{
+  static const int64_t expiryMSec = 24 * 60 * 60 * 1000LL;
+  return IsStatusChat(p_ChatId) && ((TimeUtil::GetCurrentTimeMSec() - p_ChatMessage.timeSent) > expiryMSec);
+}
+
+void UiModel::Impl::SetPendingNotice(const std::string& p_Notice)
+{
+  m_PendingNotice = p_Notice;
+}
+
+std::string UiModel::Impl::TakePendingNotice()
+{
+  std::string notice;
+  std::swap(notice, m_PendingNotice);
+  return notice;
 }
 
 bool UiModel::Impl::IsStatusFilterActive(const std::string& p_ProfileId, const std::string& p_ChatId)
@@ -5225,6 +5289,18 @@ void UiModel::KeyHandler(wint_t p_Key)
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     GetImpl().EntryKeyHandler(p_Key);
   }
+
+  // Show notice from key action, with modal dialog opened without model mutex held
+  std::string notice;
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    notice = GetImpl().TakePendingNotice();
+  }
+
+  if (!notice.empty())
+  {
+    MessageDialog("Warning", notice, 0.7, 5);
+  }
 }
 
 void UiModel::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMessage)
@@ -5513,6 +5589,12 @@ int UiModel::GetMessageOffsetLocked(const std::string& p_ProfileId, const std::s
   return GetImpl().GetMessageOffset(p_ProfileId, p_ChatId);
 }
 
+bool UiModel::IsExpiredStatusLocked(const std::string& p_ChatId, const ChatMessage& p_ChatMessage)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().IsExpiredStatus(p_ChatId, p_ChatMessage);
+}
+
 std::string UiModel::GetStatusFilterSenderIdLocked()
 {
   nc_assert(m_ModelMutex.owns_lock());
@@ -5692,6 +5774,12 @@ void UiModel::OnKeyTransfer()
   {
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     if (GetImpl().GetEditMessageActive()) return;
+
+    if (GetImpl().IsStatusChat(GetImpl().GetCurrentChat().second))
+    {
+      GetImpl().SetPendingNotice("Sending to Status Updates is not supported.");
+      return;
+    }
   }
 
   // Open modal dialog without model mutex held
@@ -6130,6 +6218,12 @@ void UiModel::OnKeyEditMsg()
   {
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     if (!GetImpl().GetSelectMessageActive() || GetImpl().GetEditMessageActive()) return;
+
+    if (GetImpl().IsStatusChat(GetImpl().GetCurrentChat().second))
+    {
+      GetImpl().SetPendingNotice("Sending to Status Updates is not supported.");
+      return;
+    }
 
     isAllowed = GetImpl().PreEditMsg(profileId, chatId, msgId, msgDialogText);
   }
