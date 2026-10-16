@@ -17,4 +17,4 @@
 ## 4. Verificación
 
 - [x] 4.1 Sandbox sin red: parseo de los formatos de link y número; fila en el diálogo; chat existente se abre con el texto; borrador existente se mantiene; número nuevo sin conexión muestra el aviso.
-- [ ] 4.2 En vivo en Ghostty: link de ACME crea el chat con el texto listo; número no registrado muestra el aviso.
+- [x] 4.2 En vivo en Ghostty: link de ACME crea el chat con el texto listo; número no registrado muestra el aviso.
