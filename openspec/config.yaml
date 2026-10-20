@@ -1,9 +1,8 @@
 schema: spec-driven
 
 context: |
-  Language: es
-  All artifacts must be written in es.
-  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+  Language: en
+  All artifacts must be written in en.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.

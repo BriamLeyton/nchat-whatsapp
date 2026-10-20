@@ -1,39 +1,39 @@
 ## Context
 
-- `UpdateChatInfoIsUnread` decide el `*` de un chat según `isRead` del mensaje más reciente.
-- `UiHistoryView` dibuja el nombre del remitente en la línea de cabecera de cada mensaje (`GetContactNameLocked`). En el mismo lugar llama a `MarkReadLocked` con `p_Final`, y sabe si el mensaje es el seleccionado (`isSelectedMessage`).
-- Desde `status-read-on-open`, `MarkRead` no hace nada en Status salvo al abrir.
-- Otros archivos por perfil ya viven en `FileUtil::GetApplicationDir() + "/profiles/" + profileId`, como `saved_contacts`.
+- `UpdateChatInfoIsUnread` decides a chat's `*` according to the `isRead` of the most recent message.
+- `UiHistoryView` draws the sender's name in the header line of each message (`GetContactNameLocked`). In the same place it calls `MarkReadLocked` with `p_Final`, and knows whether the message is the selected one (`isSelectedMessage`).
+- Since `status-read-on-open`, `MarkRead` does nothing in Status except when opening.
+- Other per-profile files already live in `FileUtil::GetApplicationDir() + "/profiles/" + profileId`, such as `saved_contacts`.
 
 ## Decisions
 
-### 1. Estado nuevo
-Un estado es nuevo si cumple todo:
-- es entrante y no está abierto (`!isOutgoing && !isRead`);
-- su `timeSent` es posterior a la línea base del perfil;
-- su id no está en el conjunto de revisados.
+### 1. New status
+A status is new if it meets all of these:
+- it is incoming and not opened (`!isOutgoing && !isRead`);
+- its `timeSent` is later than the profile's baseline;
+- its id is not in the set of reviewed ones.
 
-### 2. Archivo `status_seen`
-- Formato de texto: la primera línea es `baseline <ms>`; las siguientes, `<msgId> <timeSent>`.
-- Se lee (o se crea) al calcular por primera vez la marca de la fila Status, al cargar los chats, antes de que lleguen estados nuevos.
-- Si no existe, la línea base es la hora actual y se escribe el archivo, así los estados que ya existían no salen como nuevos.
-- Al escribir se descartan entradas con `timeSent` de más de 30 días, y la línea base sube a ese corte. Un estado de más de 30 días nunca sale como nuevo.
-- Se escribe con archivo temporal y `rename`, como `saved_contacts`, cada vez que se agrega un estado.
+### 2. `status_seen` file
+- Text format: the first line is `baseline <ms>`; the following ones are `<msgId> <timeSent>`.
+- It is read (or created) when the Status row's mark is first computed, when loading chats, before new statuses arrive.
+- If it does not exist, the baseline is the current time and the file is written, so statuses that already existed do not show as new.
+- When writing, entries with `timeSent` older than 30 days are discarded, and the baseline moves up to that cutoff. A status older than 30 days is never shown as new.
+- It is written with a temporary file and `rename`, like `saved_contacts`, each time a status is added.
 
-### 3. Pasar a revisado al seleccionar
-- En `UiHistoryView`, con `p_Final`, si el chat es Status y el mensaje es el seleccionado, se llama a `MarkStatusSeenLocked`.
-- `MarkStatusSeen` solo agrega el id al conjunto, escribe el archivo y recalcula el `*`. No toca `isRead` ni envía nada.
-- La línea del estado se dibuja ya sin `●` en el siguiente refresco.
+### 3. Marking as reviewed on selection
+- In `UiHistoryView`, with `p_Final`, if the chat is Status and the message is the selected one, `MarkStatusSeenLocked` is called.
+- `MarkStatusSeen` only adds the id to the set, writes the file and recalculates the `*`. It does not touch `isRead` and sends nothing.
+- The status line is drawn without `●` on the next refresh.
 
-### 4. Marca en la fila Status
-- En `UpdateChatInfoIsUnread`, para Status: no leído si algún estado del chat es nuevo, recorriendo los mensajes cargados.
-- `UiListView` dibuja la fila Status con `status_new_indicator` en lugar de `unread_indicator` cuando está no leída.
-- El resto de la función (archivado, silenciado, notificación) sigue igual. Status no notifica, por `status-updates-entry`.
+### 4. Mark on the Status row
+- In `UpdateChatInfoIsUnread`, for Status: unread if any status in the chat is new, walking the loaded messages.
+- `UiListView` draws the Status row with `status_new_indicator` instead of `unread_indicator` when it is unread.
+- The rest of the function (archived, muted, notification) stays the same. Status does not notify, because of `status-updates-entry`.
 
-### 5. Marca
-- `status_new_indicator` en `ui.conf`, default `●`: seguido de un espacio y antes del nombre en cada estado nuevo, y al final de la fila Status de la lista, en el lugar del `*`.
+### 5. Mark
+- `status_new_indicator` in `ui.conf`, default `●`: followed by a space and placed before the name on each new status, and at the end of the Status row in the list, in place of the `*`.
 
 ## Risks / Trade-offs
 
-- **Un solo dispositivo:** los revisados no se sincronizan con el teléfono. El teléfono sigue usando sus propios vistos.
-- **Solo lo cargado:** el `*` se calcula con los estados cargados en memoria. Los estados viejos que no se cargaron no cuentan.
+- **Single device:** reviewed statuses are not synced with the phone. The phone keeps using its own seen state.
+- **Only what is loaded:** the `*` is computed from the statuses loaded in memory. Old statuses that were not loaded do not count.

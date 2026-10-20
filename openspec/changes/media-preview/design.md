@@ -1,101 +1,101 @@
 ## Context
 
-- **Recepción (Go):**
-  - `HandleImageMessage`, `HandleVideoMessage`, `HandleAudioMessage` y el manejador de texto extendido llaman `CWmNewMessagesNotify` con texto, `fileId`, `filePath` y `fileStatus`.
-  - `filePath` es `<perfil>/tmp/<msgId><ext>`, y la extensión sale de `ExtensionByType`.
-  - Los protos traen datos que hoy se descartan:
-    - `GetJPEGThumbnail()` en imagen, video y texto extendido;
-    - `GetSeconds()` y `GetFileLength()` en video y audio, y `GetPTT()` en audio (nota de voz);
-    - `GetTitle()`, `GetDescription()`, `GetBackgroundArgb()` y `GetTextArgb()` en texto extendido.
-- **Interfaz C:** `CWmNewMessagesNotify` tiene firma fija, y la caché guarda `fileInfo` como hex con estado, id, ruta y tipo. Agregar campos ahí obliga a cambiar el protocolo y el esquema.
-- **Vista:** `UiHistoryView::Draw` decide inline con `UiImage::IsImageFile(filePath)` y `UiImage::Prepare`. Reserva una sola imagen por mensaje (`imageLineIndex`, `imageInfo`).
-- **Colores:** `UiColorConfig::GetColorId(hex)` crea colores a demanda, y `init_pair` usa ids incrementales (`colorPairId`).
-- **Herramientas locales del usuario:** `ffmpegthumbnailer`, `ffmpeg` y `mpv` instalados.
+- **Receiving (Go):**
+  - `HandleImageMessage`, `HandleVideoMessage`, `HandleAudioMessage` and the extended text handler call `CWmNewMessagesNotify` with text, `fileId`, `filePath` and `fileStatus`.
+  - `filePath` is `<profile>/tmp/<msgId><ext>`, and the extension comes from `ExtensionByType`.
+  - The protos carry data that is discarded today:
+    - `GetJPEGThumbnail()` on image, video and extended text;
+    - `GetSeconds()` and `GetFileLength()` on video and audio, and `GetPTT()` on audio (voice note);
+    - `GetTitle()`, `GetDescription()`, `GetBackgroundArgb()` and `GetTextArgb()` on extended text.
+- **C interface:** `CWmNewMessagesNotify` has a fixed signature, and the cache stores `fileInfo` as hex with status, id, path and type. Adding fields there would force changes to the protocol and the schema.
+- **View:** `UiHistoryView::Draw` decides inline with `UiImage::IsImageFile(filePath)` and `UiImage::Prepare`. It reserves a single image per message (`imageLineIndex`, `imageInfo`).
+- **Colors:** `UiColorConfig::GetColorId(hex)` creates colors on demand, and `init_pair` uses incremental ids (`colorPairId`).
+- **User's local tools:** `ffmpegthumbnailer`, `ffmpeg` and `mpv` installed.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Cero peticiones de red nuevas: solo datos del mensaje y procesos locales.
-- Sin cambios en la interfaz C ni en la caché.
-- La vista nunca bloquea: leer metadatos se cachea, y el fotograma se genera en segundo plano.
+- Zero new network requests: only message data and local processes.
+- No changes to the C interface or to the cache.
+- The view never blocks: reading metadata is cached, and the frame is generated in the background.
 
 **Non-Goals:**
-- Reproducir video en la terminal.
-- Recuperar metadatos de mensajes ya recibidos.
-- Vista previa de links consultando la web.
+- Playing video inside the terminal.
+- Recovering metadata of messages already received.
+- Link previews by querying the web.
 
 ## Decisions
 
-### 1. Archivos laterales en `tmp`
-Para mensajes de cualquier chat, Go escribe junto a `filePath`, con el mismo nombre base `<perfil>/tmp/<msgId>`:
-- `<msgId>.thumb.jpg`: bytes de `GetJPEGThumbnail()`, si no está vacío;
-- `<msgId>.meta`: líneas `clave=valor`, y solo las claves con valor:
-  - `seconds`, `file_length` (video y audio), `ptt=1` (nota de voz);
-  - `title`, `description` (texto extendido con vista previa de link);
-  - `background_argb`, `text_argb` (texto extendido, solo en `status@broadcast`).
+### 1. Sidecar files in `tmp`
+For messages from any chat, Go writes next to `filePath`, with the same base name `<profile>/tmp/<msgId>`:
+- `<msgId>.thumb.jpg`: bytes of `GetJPEGThumbnail()`, if not empty;
+- `<msgId>.meta`: `key=value` lines, and only the keys that have a value:
+  - `seconds`, `file_length` (video and audio), `ptt=1` (voice note);
+  - `title`, `description` (extended text with a link preview);
+  - `background_argb`, `text_argb` (extended text, only in `status@broadcast`).
 
-Un mensaje sin miniatura ni claves con valor no genera archivos. Por ejemplo, un texto plano no escribe nada.
+A message with no thumbnail and no keys with a value generates no files. For example, a plain text writes nothing.
 
-Se escriben solo si no existen, porque un mensaje editado o repetido no debe reescribirlos. Los saltos de línea en título y descripción se reemplazan por espacio.
+They are written only if they do not exist, because an edited or repeated message must not rewrite them. Line breaks in the title and description are replaced with a space.
 
-Para textos sin adjunto, la ruta base se arma igual (`GetPath(connId) + "/tmp/" + msgId`). La UI la deriva de `FileUtil::GetApplicationDir() + "/profiles/" + profileId + "/tmp/" + msgId`.
+For text without an attachment, the base path is built the same way (`GetPath(connId) + "/tmp/" + msgId`). The UI derives it from `FileUtil::GetApplicationDir() + "/profiles/" + profileId + "/tmp/" + msgId`.
 
-**Alternativa descartada:** pasar los campos por `CWmNewMessagesNotify` y la caché. Cambia la interfaz C, el esquema SQLite y el script `nchat-status` del usuario.
+**Rejected alternative:** passing the fields through `CWmNewMessagesNotify` and the cache. It changes the C interface, the SQLite schema and the user's `nchat-status` script.
 
-### 2. Extensión `.mp4`
-`ExtensionByType` agrega `.mp4` a `preferredExts`. Los `.f4v` ya descargados quedan como están; mpv los abre igual.
+### 2. `.mp4` extension
+`ExtensionByType` adds `.mp4` to `preferredExts`. Already downloaded `.f4v` files stay as they are; mpv opens them the same way.
 
-### 3. Lectura en la UI
-Nuevo `MediaInfo` (`src/mediainfo.{h,cpp}`):
-- `GetInfo(profileId, msgId)` devuelve `{ thumbPath, seconds, fileLength, isPtt, title, description, backgroundArgb, textArgb }`.
-- Lee el `.meta` con `Config` o un parser simple, y comprueba si existe el `.thumb.jpg`.
-- Guarda el resultado en un mapa en memoria. Los archivos laterales no cambian después de escritos, así que no se relee.
-- Solo se consulta para mensajes con adjunto, con un link en el texto, o del chat de estados (color de fondo), para no tocar el disco por cada texto plano. Un resultado vacío también se cachea.
+### 3. Reading in the UI
+New `MediaInfo` (`src/mediainfo.{h,cpp}`):
+- `GetInfo(profileId, msgId)` returns `{ thumbPath, seconds, fileLength, isPtt, title, description, backgroundArgb, textArgb }`.
+- Reads `.meta` with `Config` or a simple parser, and checks whether `.thumb.jpg` exists.
+- Stores the result in an in-memory map. Sidecar files do not change after being written, so they are not reread.
+- It is only queried for messages with an attachment, with a link in the text, or from the statuses chat (background color), so that the disk is not touched for every plain text. An empty result is also cached.
 
-### 4. Fotograma de video
+### 4. Video frame
 - `UiImage::IsVideoFile(path)`: `mp4`, `f4v`, `m4v`, `mov`, `webm`, `3gp`, `mkv`.
-- Para un video descargado de cualquier chat, el fotograma es `<ruta sin extensión>.poster.jpg`.
-- Si no existe y `video_thumbnail_command` no está vacío:
-  - se encola en un único hilo de trabajo que ejecuta el comando, reemplazando `%1` por la entrada y `%2` por la salida;
-  - al terminar, pide redibujar el historial.
-  - Un video que falla no se reintenta en la sesión.
-- Default de `video_thumbnail_command`: `ffmpegthumbnailer -i '%1' -o '%2' -s 640 -q 8 >/dev/null 2>&1`.
+- For a downloaded video from any chat, the frame is `<path without extension>.poster.jpg`.
+- If it does not exist and `video_thumbnail_command` is not empty:
+  - it is queued on a single worker thread that runs the command, replacing `%1` with the input and `%2` with the output;
+  - when done, it requests a redraw of the history.
+  - A video that fails is not retried in the session.
+- Default of `video_thumbnail_command`: `ffmpegthumbnailer -i '%1' -o '%2' -s 640 -q 8 >/dev/null 2>&1`.
 
-### 5. Imagen inline por mensaje
-La vista elige una sola ruta inline:
-1. adjunto de imagen descargado (como hoy);
-2. video: el fotograma si existe; si no, la miniatura incrustada;
-3. imagen no descargada: la miniatura incrustada;
-4. link: la miniatura incrustada, con alto máximo de 4 filas.
+### 5. Inline image per message
+The view chooses a single inline path:
+1. downloaded image attachment (as today);
+2. video: the frame if it exists; otherwise the embedded thumbnail;
+3. image not downloaded: the embedded thumbnail;
+4. link: the embedded thumbnail, with a maximum height of 4 rows.
 
-Sigue condicionado a `inline_images_enabled`, y no cambia nada de descargas ni del chequeo de vencidos.
+It remains subject to `inline_images_enabled`, and nothing changes in downloads or in the expired-status check.
 
-### 6. Línea del adjunto de video y audio
-- **Video y audio:** `📎 <archivo> ▶ m:ss · N.N MB`, con la parte que tenga datos: duración desde `seconds` y tamaño desde `file_length`.
-- **Nota de voz** (`ptt=1`): `📎 <archivo> 🎤 m:ss`.
-- Sin metadatos queda como hoy.
+### 6. Video and audio attachment line
+- **Video and audio:** `📎 <file> ▶ m:ss · N.N MB`, with the part that has data: duration from `seconds` and size from `file_length`.
+- **Voice note** (`ptt=1`): `📎 <file> 🎤 m:ss`.
+- Without metadata it stays as it is today.
 
-### 7. Vista previa de link
-Si el mensaje tiene `title` o `description`, debajo del texto se agregan:
-- `▏<título>`, con atributo bold;
-- `▏<descripción>`, recortada a 2 líneas.
+### 7. Link preview
+If the message has `title` or `description`, the following are added below the text:
+- `▏<title>`, in bold;
+- `▏<description>`, cut to 2 lines.
 
-Se usa el color normal del mensaje, y luego la miniatura.
+The message's normal color is used, and then the thumbnail.
 
-### 8. Color de estados de texto
-- Aplica a un estado sin adjunto con `background_argb`. Solo los estados lo traen.
-- Las líneas de texto se dibujan con un par de color: fondo desde ARGB (se ignora alfa) y texto desde `text_argb`. Si no hay `text_argb`, el texto es blanco o negro según la luminancia del fondo.
-- `UiColorConfig::GetRgbColorPair(fg, bg)` cachea hasta 32 pares. Pasado el límite, o si la terminal no soporta colores, se dibuja sin color.
-- Solo cambian las líneas del texto; encabezado y hora quedan igual.
+### 8. Text status color
+- Applies to a status without an attachment that has `background_argb`. Only statuses carry it.
+- The text lines are drawn with a color pair: background from ARGB (alpha is ignored) and text from `text_argb`. If there is no `text_argb`, the text is white or black depending on the background's luminance.
+- `UiColorConfig::GetRgbColorPair(fg, bg)` caches up to 32 pairs. Beyond the limit, or if the terminal does not support colors, it is drawn without color.
+- Only the text lines change; the header and the time stay the same.
 
 ## Risks / Trade-offs
 
-- **Disco:** unos KB por mensaje con adjunto o link. Las miniaturas pesan unos KB cada una, y el `.meta` menos de 1 KB.
-  - El directorio `tmp` gana hasta 2 archivos por mensaje con medios.
-  - El change `status-prefetch-cleanup` los conserva al limpiar videos.
-- **Mensajes de sincronización de historial:** pasan por los mismos manejadores, así que también generan archivos laterales.
-- **Fotograma:**
-  - `ffmpegthumbnailer` ausente: el comando falla, se usa la miniatura y no se reintenta.
-  - Costo de CPU: un proceso por video descargado, uno a la vez.
-- **Miniatura borrosa:** son unos 100 px, así que se ve pixelada al escalar. Es aceptable como respaldo, y por eso tiene menos prioridad que el fotograma o la imagen real.
-- **Colores:** terminales sin 256 colores ni truecolor muestran el color aproximado o ninguno.
+- **Disk:** a few KB per message with an attachment or link. Thumbnails weigh a few KB each, and the `.meta` less than 1 KB.
+  - The `tmp` directory gains up to 2 files per message with media.
+  - The `status-prefetch-cleanup` change keeps them when cleaning up videos.
+- **History sync messages:** they go through the same handlers, so they also generate sidecar files.
+- **Frame:**
+  - `ffmpegthumbnailer` missing: the command fails, the thumbnail is used and it is not retried.
+  - CPU cost: one process per downloaded video, one at a time.
+- **Blurry thumbnail:** they are about 100 px, so they look pixelated when scaled. It is acceptable as a fallback, and that is why it has lower priority than the frame or the real image.
+- **Colors:** terminals without 256 colors or truecolor show the approximate color or none.

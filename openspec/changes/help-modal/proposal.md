@@ -1,28 +1,28 @@
 ## Why
 
-Hoy `Ctrl-g` solo muestra u oculta la barra de ayuda inferior. Esa barra enseña unos pocos comandos por página (hay que rotarlos con `Ctrl-o`) y usa una notación poco clara (`M-p`, `^S`). No hay una vista con todos los comandos a la vez.
+Today `Ctrl-g` only shows or hides the bottom help bar. That bar shows only a few commands per page (you have to rotate them with `Ctrl-o`) and uses unclear notation (`M-p`, `^S`). There is no view with all commands at once.
 
 ## What Changes
 
-- `Ctrl-g` (`toggle_help`) abre un modal de ayuda centrado con la lista completa de comandos, agrupados por categoría. Cada comando muestra su atajo y una descripción en español.
-- El modal se cierra con `Esc`, con `Ctrl-g` o con `Ctrl-c`. Si no cabe en pantalla, se desplaza con `↑`/`↓` y `PgUp`/`PgDn`.
-- Los atajos se muestran como `Alt+p` y `Ctrl+s`, tanto en el modal como en la barra inferior. Para eso cambian los defaults de `help_prefix_meta` y `help_prefix_ctrl` a `Alt+` y `Ctrl+`. Si el usuario conserva los valores viejos (`M-`, `^`), se migran.
-- El modal refleja la configuración real de `key.conf`. Las funciones sin tecla asignada (`KEY_NONE`) no aparecen.
-- La barra inferior sigue controlada por `help_enabled` en `ui.conf`, pero `Ctrl-g` ya no la alterna.
+- `Ctrl-g` (`toggle_help`) opens a centered help modal with the full list of commands, grouped by category. Each command shows its shortcut and a description in Spanish.
+- The modal closes with `Esc`, with `Ctrl-g` or with `Ctrl-c`. If it does not fit on screen, it scrolls with `↑`/`↓` and `PgUp`/`PgDn`.
+- Shortcuts are shown as `Alt+p` and `Ctrl+s`, both in the modal and in the bottom bar. To do that, the defaults of `help_prefix_meta` and `help_prefix_ctrl` change to `Alt+` and `Ctrl+`. If the user keeps the old values (`M-`, `^`), they are migrated.
+- The modal reflects the actual `key.conf` configuration. Functions with no assigned key (`KEY_NONE`) do not appear.
+- The bottom bar is still controlled by `help_enabled` in `ui.conf`, but `Ctrl-g` no longer toggles it.
 
 ## Capabilities
 
 ### New Capabilities
-- `help-modal`: modal de ayuda con todos los comandos y notación de teclas legible.
+- `help-modal`: help modal with all commands and readable key notation.
 
 ### Modified Capabilities
-<!-- No hay specs existentes en openspec/specs/. -->
+<!-- No existing specs in openspec/specs/. -->
 
 ## Impact
 
-- **UI nueva:** `src/uihelpdialog.{h,cpp}`, basada en `UiDialog`.
-- **UI existente:**
-  - `src/uimodel.cpp`: `OnKeyToggleHelp` abre el modal.
-  - `src/uihelpview.{h,cpp}`: `GetKeyDisplay` pasa a ser pública y reutilizable, y suma más teclas (PgUp/PgDn, Home/End, Del, Ctrl+[, KEY_F*).
-  - `src/uiconfig.cpp`: defaults nuevos y migración de los prefijos.
-- **Build:** `CMakeLists.txt` incluye el archivo nuevo.
+- **New UI:** `src/uihelpdialog.{h,cpp}`, based on `UiDialog`.
+- **Existing UI:**
+  - `src/uimodel.cpp`: `OnKeyToggleHelp` opens the modal.
+  - `src/uihelpview.{h,cpp}`: `GetKeyDisplay` becomes public and reusable, and gains more keys (PgUp/PgDn, Home/End, Del, Ctrl+[, KEY_F*).
+  - `src/uiconfig.cpp`: new defaults and migration of the prefixes.
+- **Build:** `CMakeLists.txt` includes the new file.

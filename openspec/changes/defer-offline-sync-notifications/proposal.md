@@ -1,32 +1,32 @@
 ## Why
 
-Al volver de suspender el equipo, nchat reconecta y whatsmeow entrega de golpe la cola offline: los mensajes recibidos durante la suspensión y, detrás, los recibos `read-self` de los que ya se leyeron en el teléfono. Cada mensaje suena (campana y notificación de escritorio) en cuanto llega, antes de que llegue su recibo de leído, así que suenan a la vez decenas de mensajes que ya se leyeron.
+When the machine comes back from suspend, nchat reconnects and whatsmeow delivers the offline queue all at once: the messages received during the suspension and, behind them, the `read-self` receipts for those already read on the phone. Every message rings (bell and desktop notification) as soon as it arrives, before its read receipt arrives, so dozens of messages that were already read ring at the same time.
 
-La causa: solo se notifican los mensajes con `timeSent > m_ConnectTime` (`src/uimodel.cpp:3501`). `m_ConnectTime` se fija una sola vez, con el `ConnectNotify` de `WmChat::Login()` (`lib/wmchat/src/wmchat.cpp:236`). Al reconectar, `events.Connected` (`lib/wmchat/go/gowm.go:909`) no lo actualiza, así que todo lo que llega en la cola offline se trata como mensaje nuevo.
+The cause: only messages with `timeSent > m_ConnectTime` are notified (`src/uimodel.cpp:3501`). `m_ConnectTime` is set only once, by the `ConnectNotify` of `WmChat::Login()` (`lib/wmchat/src/wmchat.cpp:236`). On reconnect, `events.Connected` (`lib/wmchat/go/gowm.go:909`) does not update it, so everything arriving in the offline queue is treated as a new message.
 
 ## What Changes
 
-- nchat reenvía a la UI el inicio (`events.OfflineSyncPreview`) y el fin (`events.OfflineSyncCompleted`) de la sincronización offline de whatsmeow.
-- Mientras dura la sincronización offline de un perfil, los mensajes entrantes no generan campana ni notificación de escritorio. Se guarda una lista de los chats que habrían notificado.
-- Al terminar la sincronización (tras un margen corto para que se procesen los últimos eventos), nchat revisa esos chats:
-  - si siguen sin leer (no llegó `read-self` para su último mensaje), notifica una sola vez por chat, con el último mensaje;
-  - si ya se leyeron en el teléfono, no notifica;
-  - la campana suena como mucho una vez en total.
-- Si nunca llega `OfflineSyncCompleted`, un tiempo máximo de seguridad termina la retención y aplica la misma revisión.
-- Las reglas actuales siguen igual: chats silenciados, archivados y restringidos, `notify_every_unread`, `terminal_bell_*` y `desktop_notify_*`.
-- Fuera de la sincronización offline, la notificación de mensajes nuevos no cambia.
+- nchat forwards to the UI the start (`events.OfflineSyncPreview`) and the end (`events.OfflineSyncCompleted`) of whatsmeow's offline sync.
+- While a profile's offline sync is running, incoming messages do not produce a bell or a desktop notification. A list of the chats that would have notified is kept.
+- When the sync ends (after a short margin so the last events are processed), nchat checks those chats:
+  - if they are still unread (no `read-self` arrived for their last message), it notifies once per chat, with the last message;
+  - if they were read on the phone, it does not notify;
+  - the bell rings at most once in total.
+- If `OfflineSyncCompleted` never arrives, a maximum safety time ends the retention and applies the same check.
+- Current rules stay the same: muted, archived and restricted chats, `notify_every_unread`, `terminal_bell_*` and `desktop_notify_*`.
+- Outside the offline sync, notification of new messages does not change.
 
 ## Capabilities
 
 ### New Capabilities
-- `offline-sync-notifications`: retener las notificaciones durante la sincronización offline al reconectar, y notificar después solo los chats que siguen sin leer.
+- `offline-sync-notifications`: hold notifications during the offline sync on reconnect, and afterwards notify only the chats that are still unread.
 
 ### Modified Capabilities
-<!-- No hay specs existentes en openspec/specs/. -->
+<!-- No existing specs in openspec/specs/. -->
 
 ## Impact
 
-- `lib/wmchat/go/gowm.go`, `cgowm.go`: manejar `events.OfflineSyncPreview` y reenviar los dos eventos con un nuevo callback C.
-- `lib/common/src/protocol.h`, `lib/wmchat/src/wmchat.{h,cpp}`: nuevo `OfflineSyncNotify` (inicio/fin).
-- `src/uimodel.{h,cpp}`: estado de retención por perfil, `UpdateChatInfoIsUnread` deja los chats pendientes en vez de notificar, vaciado en `ProcessTimers`.
-- No cambia el esquema de la base de datos ni el formato de configuración.
+- `lib/wmchat/go/gowm.go`, `cgowm.go`: handle `events.OfflineSyncPreview` and forward both events through a new C callback.
+- `lib/common/src/protocol.h`, `lib/wmchat/src/wmchat.{h,cpp}`: new `OfflineSyncNotify` (start/end).
+- `src/uimodel.{h,cpp}`: per-profile retention state, `UpdateChatInfoIsUnread` keeps the chats pending instead of notifying, flush in `ProcessTimers`.
+- No change to the database schema or the configuration format.

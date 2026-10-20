@@ -1,43 +1,43 @@
 ## Context
 
-- whatsmeow entrega cada mutación del app state como `events.AppState{Index, SyncActionValue}`. Para `lock` no hay evento propio. nchat solo la registra en `gowm.go` (`case *events.AppState`).
-- `lock`: índice `["lock", <jid>]`, valor `LockChatAction{locked}`. El jid puede ser LID; `GetChatId` lo convierte al id de chat de nchat, como en `HandleArchive`.
-- `setting_chatLock`: índice `["setting_chatLock"]`, valor `ChatLockSettings{hideLockedChats, secretCode}`. `secretCode` es `UserPassword{encoding, transformer (PBKDF2_HMAC_SHA512 o SHA384), transformerArg (sal, iteraciones), transformedData}`.
-- Ambos están en la colección `regular_low` (verificado por MAC sin red).
-- `FetchAppState(ctx, name, fullSync=true, onlyIfNotSynced=false)` vuelve a descargar el snapshot y emite todas las mutaciones con `FromFullSync`.
-- Archivados y fijados ya se reciben y persisten por chat. El conjunto de vistos de estados se persiste en un archivo del perfil (`status_seen`).
+- whatsmeow delivers each app state mutation as `events.AppState{Index, SyncActionValue}`. There is no dedicated event for `lock`. nchat only logs it in `gowm.go` (`case *events.AppState`).
+- `lock`: index `["lock", <jid>]`, value `LockChatAction{locked}`. The jid may be a LID; `GetChatId` converts it to nchat's chat id, as in `HandleArchive`.
+- `setting_chatLock`: index `["setting_chatLock"]`, value `ChatLockSettings{hideLockedChats, secretCode}`. `secretCode` is `UserPassword{encoding, transformer (PBKDF2_HMAC_SHA512 or SHA384), transformerArg (salt, iterations), transformedData}`.
+- Both are in the `regular_low` collection (verified by MAC without network).
+- `FetchAppState(ctx, name, fullSync=true, onlyIfNotSynced=false)` downloads the snapshot again and emits all mutations with `FromFullSync`.
+- Archived and pinned chats are already received and persisted per chat. The set of seen statuses is persisted in a profile file (`status_seen`).
 
 ## Decisions
 
 ### 1. Go
-- En `events.AppState`:
+- In `events.AppState`:
   - `lock`: `CWmUpdateLockedNotify(connId, GetChatId(jid), locked)`;
-  - `setting_chatLock`: se escribe `<profile>/chat_lock` (proto `ChatLockSettings` serializado, escritura atómica) y se avisa con `CWmUpdateLockedNotify(connId, "", hasCode)` para que la UI sepa que hay código.
-- Descarga completa: tras `events.Connected`, si no existe `<profile>/locked_synced`, en una goroutine `FetchAppState(regular_low, true, false)` con `EmitAppStateEventsOnFullSync` y el mutex de `ResyncAppState`; al terminar sin error se crea `locked_synced`.
-  - Si el snapshot del servidor no verifica (`ErrMismatchingLTHash`), se pide al teléfono un snapshot de recuperación (`RequestAppStateRecovery`, como WhatsApp Web). Al llegar (`AppStateSyncComplete{Recovery}` de `regular_low`) se emiten sus eventos y se crea `locked_synced`.
-  - Con otro error, o sin respuesta del teléfono, se reintenta en la próxima conexión.
-- `WmCheckSecretCode(connId, code)`: lee `chat_lock`, deriva PBKDF2 con el hash, sal e iteraciones de `transformerArg`, y compara con `transformedData` en tiempo constante. Codificación del código según `encoding` (UTF-8). Resultado: 0 correcto, 1 incorrecto, 2 sin código. Se responde con `CheckSecretCodeNotify`.
-- Las claves exactas de `transformerArg` y la codificación se confirman en la implementación con el valor real (sin mostrar el hash en el log).
+  - `setting_chatLock`: `<profile>/chat_lock` is written (serialized `ChatLockSettings` proto, atomic write) and `CWmUpdateLockedNotify(connId, "", hasCode)` is sent so the UI knows a code exists.
+- Full download: after `events.Connected`, if `<profile>/locked_synced` does not exist, in a goroutine `FetchAppState(regular_low, true, false)` with `EmitAppStateEventsOnFullSync` and the `ResyncAppState` mutex; when it finishes without error, `locked_synced` is created.
+  - If the server snapshot does not verify (`ErrMismatchingLTHash`), a recovery snapshot is requested from the phone (`RequestAppStateRecovery`, like WhatsApp Web). When it arrives (`AppStateSyncComplete{Recovery}` of `regular_low`) its events are emitted and `locked_synced` is created.
+  - With another error, or with no response from the phone, it is retried on the next connection.
+- `WmCheckSecretCode(connId, code)`: reads `chat_lock`, derives PBKDF2 with the hash, salt and iterations from `transformerArg`, and compares with `transformedData` in constant time. The code is encoded according to `encoding` (UTF-8). Result: 0 correct, 1 incorrect, 2 no code. It is answered with `CheckSecretCodeNotify`.
+- The exact keys of `transformerArg` and the encoding are confirmed in the implementation with the real value (without printing the hash to the log).
 
-### 2. Persistencia en la UI
-- `<profile>/locked_chats`: un chat id por línea, reescrito al cambiar. Se carga al iniciar, antes de dibujar la lista.
-- `m_LockedChats[profileId]` (set) y `m_LockedVisible` (sesión, inicia en `false`).
+### 2. UI persistence
+- `<profile>/locked_chats`: one chat id per line, rewritten on change. It is loaded at startup, before drawing the list.
+- `m_LockedChats[profileId]` (set) and `m_LockedVisible` (session, starts as `false`).
 
-### 3. Ocultar
-- `IsChatHidden(profileId, chatId)` = restringido y `!m_LockedVisible`.
-- Se aplica en: armado de la lista y secciones (`UiListView`), `next_chat`/`prev_chat`, salto a no leídos, `goto_chat`, Alt-n (contactos con chat restringido) y open-by-link (aviso "This chat is locked.").
-- Notificaciones: en la recepción de mensajes se omiten `DesktopNotify`, campana y el conteo de no leídos (título de la terminal y fila Status) para chats restringidos, aunque estén visibles.
-- Respuesta a estado: si el chat del autor está oculto, no hay cambio de chat y el aviso "Reply sent to X." se muestra en Status.
-- Si el chat actual pasa a oculto (al llegar `lock` u ocultar con Alt-l), se cambia al primer chat visible.
+### 3. Hiding
+- `IsChatHidden(profileId, chatId)` = locked and `!m_LockedVisible`.
+- It is applied to: building the list and its sections (`UiListView`), `next_chat`/`prev_chat`, jump to unread, `goto_chat`, Alt-n (contacts with a locked chat) and open-by-link (notice "This chat is locked.").
+- Notifications: when receiving messages, `DesktopNotify`, the bell and the unread count (terminal title and Status row) are skipped for locked chats, even if visible.
+- Status reply: if the author's chat is hidden, there is no chat switch and the notice "Reply sent to X." is shown in Status.
+- If the current chat becomes hidden (when a `lock` arrives or when hiding with Alt-l), the first visible chat is selected.
 
 ### 4. Alt-l
-- Oculto: si no hay `chat_lock` con código, aviso de configurar el código. Si hay, diálogo "Secret code" con entrada enmascarada; Enter envía `CheckSecretCodeRequest`. Mientras se verifica no se muestra nada; el resultado llega por `CheckSecretCodeNotify`.
-- Correcto: `m_LockedVisible = true`, la lista muestra `▾ LOCKED` al final (después de Archived). Visible: Alt-l oculta sin pedir nada.
-- El código vive solo en la pila del diálogo y en la petición; no se registra en el log ni se guarda.
+- Hidden: if there is no `chat_lock` with a code, a notice to set the code. If there is, a "Secret code" dialog with masked input; Enter sends `CheckSecretCodeRequest`. Nothing is shown while it is being verified; the result arrives through `CheckSecretCodeNotify`.
+- Correct: `m_LockedVisible = true`, the list shows `▾ LOCKED` at the end (after Archived). Visible: Alt-l hides without asking anything.
+- The code lives only on the dialog stack and in the request; it is not logged or stored.
 
 ## Risks / Trade-offs
 
-- La descarga completa de `regular_low` re-emite también archivados, fijados y otros ajustes de esa colección. Los manejadores actuales son idempotentes (aplican el estado actual).
-- Es una petición a WhatsApp, igual a la de recuperación de la app. Se hace una sola vez por perfil.
-- `chat_lock` contiene el hash del código secreto, que se podría atacar por fuerza bruta (códigos cortos). Se guarda con permisos 0600, igual que la sesión, que ya contiene las llaves de la cuenta.
-- `hideLockedChats` en `ChatLockSettings` se guarda pero no cambia el comportamiento: en este dispositivo vinculado siempre se ocultan, como en WhatsApp Web.
+- The full download of `regular_low` also re-emits archived, pinned and other settings in that collection. The current handlers are idempotent (they apply the current state).
+- It is a request to WhatsApp, the same as the app's recovery request. It is done once per profile.
+- `chat_lock` contains the hash of the secret code, which could be attacked by brute force (short codes). It is stored with 0600 permissions, the same as the session, which already contains the account keys.
+- `hideLockedChats` in `ChatLockSettings` is stored but does not change behavior: on this linked device they are always hidden, as in WhatsApp Web.

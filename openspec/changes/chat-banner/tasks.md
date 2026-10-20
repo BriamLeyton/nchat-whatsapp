@@ -1,23 +1,23 @@
-## 1. Foto de perfil
+## 1. Profile photo
 
-- [x] 1.1 `GetAvatarRequest` y `NewAvatarNotify` en `protocol.h`; manejo en `wmchat.cpp` y `CWmGetAvatar` en `cgowm.go`.
-- [x] 1.2 `WmGetAvatar`: `GetProfilePictureInfo` (preview, `ExistingID`), descarga atómica, `.id` con `none` para oculta o inexistente, aviso a la UI.
-- [x] 1.3 `uimodel`: pedir la foto al abrir un chat (24 h por mtime de `.id`, una vez por sesión) y redibujar con `NewAvatarNotify`.
-- [x] 1.4 Foto completa: `full` en la petición, `<chatId>.full.jpg` (borrada si cambia la preview), Ctrl-v sin selección la abre o la pide y la abre al llegar; "No profile photo." si no hay.
+- [x] 1.1 `GetAvatarRequest` and `NewAvatarNotify` in `protocol.h`; handling in `wmchat.cpp` and `CWmGetAvatar` in `cgowm.go`.
+- [x] 1.2 `WmGetAvatar`: `GetProfilePictureInfo` (preview, `ExistingID`), atomic download, `.id` with `none` for hidden or nonexistent, notification to the UI.
+- [x] 1.3 `uimodel`: request the photo when opening a chat (24 h by the mtime of `.id`, once per session) and redraw with `NewAvatarNotify`.
+- [x] 1.4 Full photo: `full` in the request, `<chatId>.full.jpg` (deleted if the preview changes), Ctrl-v without selection opens it or requests it and opens it on arrival; "No profile photo." if there is none.
 
 ## 2. Banner
 
-- [x] 2.1 `UiHistoryView`: reservar 3 filas con `history_banner_color`, dibujar texto de contacto o grupo, y ubicar la foto con `imagePlacements` (clave de caché con mtime).
-- [x] 2.2 Conteo de estados por contacto (24 h, `{total, nuevos}`) al abrir el chat, al llegar un estado y al volver del filtro; línea de estados en el banner.
-- [x] 2.3 `GetChatPresence` (tipo y texto), usada por `GetChatStatus`; presencia coloreada y ` · muted` en el banner.
-- [x] 2.4 `chat_banner_enabled=1` en `uiconfig.cpp`, `history_banner_color`/`history_banner_attr` y colores de presencia en `uicolorconfig.cpp`, y README.
+- [x] 2.1 `UiHistoryView`: reserve 3 rows with `history_banner_color`, draw contact or group text, and place the photo with `imagePlacements` (cache key with mtime).
+- [x] 2.2 Status count per contact (24 h, `{total, new}`) when opening the chat, when a status arrives and when returning from the filter; statuses line in the banner.
+- [x] 2.3 `GetChatPresence` (type and text), used by `GetChatStatus`; colored presence and ` · muted` in the banner.
+- [x] 2.4 `chat_banner_enabled=1` in `uiconfig.cpp`, `history_banner_color`/`history_banner_attr` and presence colors in `uicolorconfig.cpp`, and README.
 
-## 3. Alt-u desde el chat
+## 3. Alt-u from the chat
 
-- [x] 3.1 `OnKeyStatusFilter` en chat de contacto: guardar regreso, ir a Status y filtrar; Alt-u en el filtro vuelve; cambiar de chat olvida el regreso; aviso si no hay estados.
-- [x] 3.2 Ayuda (`uihelpdialog.cpp`) y README: Alt-u en chats de contacto y Ctrl-v sin selección.
+- [x] 3.1 `OnKeyStatusFilter` in a contact chat: save return, go to Status and filter; Alt-u in the filter returns; switching chats forgets the return; notice if there are no statuses.
+- [x] 3.2 Help (`uihelpdialog.cpp`) and README: Alt-u in contact chats and Ctrl-v without selection.
 
-## 4. Verificación
+## 4. Verification
 
-- [x] 4.1 Sandbox sin red: banner de contacto y de grupo con texto, conteo de estados con valores conocidos, Alt-u ida y vuelta, aviso sin estados; sin red no se pide la foto; Ctrl-v sin foto muestra "No profile photo.". Colores de presencia y fotos pasan a 4.2, porque requieren red.
-- [x] 4.2 En vivo en Ghostty: colores de presencia (typing, online, seen); fotos de contacto y grupo; Ctrl-v abre la foto completa; contacto con foto oculta; reabrir el chat no vuelve a consultar (log); estados nuevos y revisados en el banner.
+- [x] 4.1 Sandbox without network: contact and group banner with text, status count with known values, Alt-u round trip, notice without statuses; without network the photo is not requested; Ctrl-v without photo shows "No profile photo.". Presence colors and photos move to 4.2, because they require network.
+- [x] 4.2 Live in Ghostty: presence colors (typing, online, seen); contact and group photos; Ctrl-v opens the full photo; contact with a hidden photo; reopening the chat does not query again (log); new and reviewed statuses in the banner.

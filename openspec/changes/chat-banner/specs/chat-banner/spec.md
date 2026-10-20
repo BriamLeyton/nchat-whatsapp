@@ -1,71 +1,71 @@
 ## Purpose
 
-Mostrar arriba del historial una cabecera del chat con foto, datos y estados del contacto, como en WhatsApp, y abrir sus estados con Alt-u desde el chat.
+Show a chat header at the top of the history with photo, details and the contact's statuses, as in WhatsApp, and open their statuses with Alt-u from the chat.
 
 ## ADDED Requirements
 
-### Requirement: Banner del chat
-Con `chat_banner_enabled=1`, el historial de un chat de contacto o de grupo SHALL mostrar en sus primeras 3 filas un banner con la foto de perfil (si hay soporte de imágenes y foto) y el texto a su derecha, con su propio color y sin línea separadora. Para un contacto SHALL mostrar `nombre · número`, presencia y estados, una fila cada uno; para un grupo, nombre y número de participantes. El banner MUST NOT ocupar más de 3 filas. El chat de Status MUST NOT mostrar banner.
+### Requirement: Chat banner
+With `chat_banner_enabled=1`, the history of a contact or group chat SHALL show in its first 3 rows a banner with the profile photo (if image support and a photo are available) and the text to its right, with its own color and no separator line. For a contact it SHALL show `name · number`, presence and statuses, one row each; for a group, the name and the number of participants. The banner MUST NOT take more than 3 rows. The Status chat MUST NOT show a banner.
 
-#### Scenario: Chat de contacto
-- **WHEN** el usuario abre el chat de un contacto en Ghostty
-- **THEN** las 3 primeras filas del historial muestran su foto, `nombre · número`, su presencia y sus estados
+#### Scenario: Contact chat
+- **WHEN** the user opens a contact's chat in Ghostty
+- **THEN** the first 3 rows of the history show their photo, `name · number`, their presence and their statuses
 
-#### Scenario: Grupo
-- **WHEN** el usuario abre un grupo
-- **THEN** el banner muestra la foto del grupo, su nombre y `N participants`
+#### Scenario: Group
+- **WHEN** the user opens a group
+- **THEN** the banner shows the group photo, its name and `N participants`
 
-#### Scenario: Sin imágenes
-- **WHEN** la terminal no soporta imágenes inline
-- **THEN** el banner muestra solo el texto
+#### Scenario: Without images
+- **WHEN** the terminal does not support inline images
+- **THEN** the banner shows only the text
 
-### Requirement: Colores de presencia
-La presencia del banner SHALL usar un color por tipo, configurable: escribiendo y en línea en verde, ausente en amarillo, última vez en gris. Un chat silenciado SHALL agregar ` · muted` en gris.
+### Requirement: Presence colors
+The presence in the banner SHALL use a configurable color per type: typing and online in green, away in yellow, last seen in gray. A muted chat SHALL add ` · muted` in gray.
 
-#### Scenario: Contacto escribiendo
-- **WHEN** el contacto empieza a escribir
-- **THEN** la fila de presencia muestra `typing` en verde
+#### Scenario: Contact typing
+- **WHEN** the contact starts typing
+- **THEN** the presence row shows `typing` in green
 
-#### Scenario: Última vez
-- **WHEN** el contacto se desconecta
-- **THEN** la fila muestra `seen <hora>` en gris
+#### Scenario: Last seen
+- **WHEN** the contact goes offline
+- **THEN** the row shows `seen <time>` in gray
 
-### Requirement: Abrir la foto de perfil
-En un chat con banner y sin mensaje seleccionado, `open` (Ctrl-v) SHALL abrir la foto de perfil en tamaño completo con `attachment_open_command`, pidiéndola a WhatsApp solo la primera vez y guardándola en caché. Sin foto SHALL aparecer "No profile photo.". Con un mensaje seleccionado, `open` MUST seguir abriendo su adjunto.
+### Requirement: Open the profile photo
+In a chat with a banner and no selected message, `open` (Ctrl-v) SHALL open the profile photo at full size with `attachment_open_command`, requesting it from WhatsApp only the first time and caching it. Without a photo, "No profile photo." SHALL be shown. With a selected message, `open` MUST keep opening its attachment.
 
-#### Scenario: Abrir la foto
-- **WHEN** el usuario pulsa Ctrl-v en el chat de un contacto sin mensaje seleccionado
-- **THEN** la foto de perfil completa se abre en el visor externo
+#### Scenario: Open the photo
+- **WHEN** the user presses Ctrl-v in a contact's chat without a selected message
+- **THEN** the full profile photo opens in the external viewer
 
-#### Scenario: Foto cambiada
-- **WHEN** el contacto cambia su foto y el banner recibe la nueva preview
-- **THEN** la próxima apertura pide y muestra la foto nueva
+#### Scenario: Photo changed
+- **WHEN** the contact changes their photo and the banner receives the new preview
+- **THEN** the next opening requests and shows the new photo
 
-### Requirement: Estados en el banner
-En el chat de un contacto, el banner SHALL mostrar sus estados de las últimas 24 h: `● N new status updates · Alt-u` si hay sin revisar, o `◯ N status updates · Alt-u` si todos están revisados. Sin estados de las últimas 24 h la fila SHALL quedar vacía. Contar MUST NOT descargar adjuntos.
+### Requirement: Statuses in the banner
+In a contact's chat, the banner SHALL show their statuses from the last 24 h: `● N new status updates · Alt-u` if there are unreviewed ones, or `◯ N status updates · Alt-u` if all are reviewed. Without statuses from the last 24 h the row SHALL be empty. Counting MUST NOT download attachments.
 
-#### Scenario: Estados sin revisar
-- **WHEN** el contacto publicó 3 estados hoy y ninguno se revisó
-- **THEN** el banner muestra `● 3 new status updates · Alt-u`
+#### Scenario: Unreviewed statuses
+- **WHEN** the contact posted 3 statuses today and none has been reviewed
+- **THEN** the banner shows `● 3 new status updates · Alt-u`
 
-#### Scenario: Estados revisados
-- **WHEN** el usuario revisa todos los estados del contacto y vuelve a su chat
-- **THEN** el banner muestra `◯ 3 status updates · Alt-u`
+#### Scenario: Reviewed statuses
+- **WHEN** the user reviews all of the contact's statuses and returns to their chat
+- **THEN** the banner shows `◯ 3 status updates · Alt-u`
 
-### Requirement: Alt-u desde el chat
-En el chat de un contacto, Alt-u SHALL pasar a Status filtrado por ese contacto, y Alt-u en ese filtro SHALL volver al chat del contacto. Si el contacto no tiene estados guardados, SHALL aparecer "No status updates from <nombre>." sin cambiar de chat.
+### Requirement: Alt-u from the chat
+In a contact's chat, Alt-u SHALL switch to Status filtered by that contact, and Alt-u in that filter SHALL return to the contact's chat. If the contact has no saved statuses, "No status updates from <name>." SHALL be shown without changing chat.
 
-#### Scenario: Ver y cerrar
-- **WHEN** el usuario pulsa Alt-u en el chat de un contacto y luego Alt-u otra vez
-- **THEN** primero ve solo los estados de ese contacto, y después vuelve a su chat
+#### Scenario: View and close
+- **WHEN** the user presses Alt-u in a contact's chat and then Alt-u again
+- **THEN** first they see only that contact's statuses, and then they return to their chat
 
-### Requirement: Foto de perfil en caché
-La foto SHALL pedirse a WhatsApp en tamaño reducido al abrir el chat, guardarse en `<profile>/avatars/`, y volver a consultarse como máximo una vez cada 24 h por chat, enviando el id guardado para no descargarla si no cambió. Una foto oculta o inexistente SHALL recordarse por 24 h.
+### Requirement: Cached profile photo
+The photo SHALL be requested from WhatsApp at reduced size when the chat is opened, stored in `<profile>/avatars/`, and queried again at most once every 24 h per chat, sending the stored id so it is not downloaded if unchanged. A hidden or nonexistent photo SHALL be remembered for 24 h.
 
-#### Scenario: Reabrir el chat
-- **WHEN** el usuario abre el mismo chat dos veces en menos de 24 h
-- **THEN** solo la primera vez se consulta a WhatsApp
+#### Scenario: Reopen the chat
+- **WHEN** the user opens the same chat twice within 24 h
+- **THEN** only the first time is WhatsApp queried
 
-#### Scenario: Foto oculta
-- **WHEN** el contacto oculta su foto
-- **THEN** el banner se muestra sin foto y no se vuelve a consultar en 24 h
+#### Scenario: Hidden photo
+- **WHEN** the contact hides their photo
+- **THEN** the banner is shown without a photo and is not queried again within 24 h

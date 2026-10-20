@@ -1,22 +1,22 @@
-## 1. Modelo
+## 1. Model
 
-- [x] 1.1 Agregar `ChatSectionStatus=0` al enum y renumerar (Count=4). `GetChatSection` devuelve Status para `status@broadcast`. Ajustar arrays por sección y `SetSectionCollapsed`.
-- [x] 1.2 `IsChatHidden`: nunca oculta Status, y excluye Status del conteo de otras secciones.
-- [x] 1.3 `OnKeyPinChat`/`OnKeyArchiveChat`: ignorar sobre `status@broadcast`.
+- [x] 1.1 Add `ChatSectionStatus=0` to the enum and renumber (Count=4). `GetChatSection` returns Status for `status@broadcast`. Adjust per-section arrays and `SetSectionCollapsed`.
+- [x] 1.2 `IsChatHidden`: never hides Status, and excludes Status from the count of other sections.
+- [x] 1.3 `OnKeyPinChat`/`OnKeyArchiveChat`: ignore on `status@broadcast`.
 
-## 2. Vista y configuración
+## 2. View and configuration
 
-- [x] 2.1 Opciones `list_status_name=◉ Status`, `list_color_status_fg=0x6fcfa8`, `list_color_status_bg=0x173029`, `list_attr_status=bold`.
-- [x] 2.2 `UiListView::Draw`: títulos solo si hay Pinned o Archived. Fila de Status sin título, con su nombre, estilo, selección y `*`.
-- [x] 2.3 README: documentar las opciones nuevas.
+- [x] 2.1 Options `list_status_name=◉ Status`, `list_color_status_fg=0x6fcfa8`, `list_color_status_bg=0x173029`, `list_attr_status=bold`.
+- [x] 2.2 `UiListView::Draw`: titles only if Pinned or Archived has chats. Status row without a title, with its name, style, selection and `*`.
+- [x] 2.3 README: document the new options.
 
-## 3. Verificación
+## 3. Verification
 
-- [x] 3.1 Sandbox offline:
-  - [x] la fila de estados aparece primera, antes de `PINNED`;
-  - [x] `Alt-o` colapsa "Others" sin ocultar los estados, y el conteo no los incluye;
-  - [x] `Tab`/`Shift-Tab` pasan por la fila, y el historial muestra los estados;
-  - [x] seleccionada se distingue de no seleccionada;
-  - [x] `Alt-p`/`Alt-a` sobre la fila no hacen nada;
-  - [x] con `status_broadcast=0` no aparece.
-- [ ] 3.2 En vivo en Ghostty: un estado nuevo pone `*` sin notificación, y verlo lo quita.
+- [x] 3.1 Offline sandbox:
+  - [x] the statuses row appears first, before `PINNED`;
+  - [x] `Alt-o` collapses "Others" without hiding statuses, and the count does not include them;
+  - [x] `Tab`/`Shift-Tab` go through the row, and the history shows the statuses;
+  - [x] selected is distinguishable from unselected;
+  - [x] `Alt-p`/`Alt-a` on the row do nothing;
+  - [x] with `status_broadcast=0` it does not appear.
+- [ ] 3.2 Live in Ghostty: a new status puts `*` without a notification, and viewing it removes it.

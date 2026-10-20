@@ -1,30 +1,30 @@
 ## Why
 
-Al entrar a Status, cada estado que se dibuja en pantalla se marca como visto, y a los vigentes se les envía el aviso de visto a quien los publicó. Es el comportamiento normal de nchat para cualquier chat, pero en estados equivale a decir "vi todos tus estados" solo por pasar por la lista.
+When entering Status, every status drawn on screen is marked as seen, and for current ones a read receipt is sent to whoever posted them. That is nchat's normal behavior for any chat, but in statuses it amounts to saying "I saw all your statuses" just by passing through the list.
 
-El usuario quiere que un estado quede como no visto hasta que lo abra.
+The user wants a status to stay unseen until they open it.
 
 ## What Changes
 
-- En el chat de estados, dibujar un estado ya no lo marca como visto.
-- Un estado se marca como visto solo al abrirlo con:
-  - `open`: abrir el adjunto en el visor externo;
-  - `open_msg`: ver el texto en el visor externo, para estados de texto.
-- Al marcarlo visto:
-  - si está vigente, se envía el aviso de visto, como hoy;
-  - si está vencido, se marca solo en local, sin aviso, como hoy.
-- Los estados no abiertos siguen contando como no leídos en la fila de Status.
-- Los demás chats no cambian: se marcan al verse.
+- In the statuses chat, drawing a status no longer marks it as seen.
+- A status is marked as seen only when it is opened with:
+  - `open`: opens the attachment in the external viewer;
+  - `open_msg`: views the text in the external viewer, for text statuses.
+- When marked as seen:
+  - if it is current, the read receipt is sent, as today;
+  - if it is expired, it is marked only locally, without a receipt, as today.
+- Statuses not opened still count as unread in the Status row.
+- Other chats do not change: they are marked when seen.
 
 ## Capabilities
 
 ### New Capabilities
-- `status-read-on-open`: estados marcados como vistos solo al abrirlos.
+- `status-read-on-open`: statuses marked as seen only when opened.
 
 ### Modified Capabilities
-<!-- No hay specs existentes en openspec/specs/. -->
+<!-- No existing specs in openspec/specs/. -->
 
 ## Impact
 
-- `src/uimodel.{h,cpp}`: `MarkRead` ignora el chat de estados salvo apertura explícita; `OnKeyOpenAttachment` y `OnKeyOpenMsg` marcan el estado seleccionado.
-- `README.md`: comportamiento de visto en estados.
+- `src/uimodel.{h,cpp}`: `MarkRead` ignores the statuses chat except on explicit opening; `OnKeyOpenAttachment` and `OnKeyOpenMsg` mark the selected status.
+- `README.md`: seen behavior for statuses.

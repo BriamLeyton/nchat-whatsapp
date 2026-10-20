@@ -1,54 +1,54 @@
 ## Why
 
-Los adjuntos y links se ven pobres en todos los chats (personas, grupos y estados):
+Attachments and links look poor in all chats (people, groups and statuses):
 - **Videos:**
-  - se ven como una línea `📎 XXXX.f4v` sin vista previa, duración ni tamaño;
-  - la extensión `.f4v` sale de la librería MIME del sistema, que la pone antes de `.mp4`.
-- **Notas de voz y audios:** no muestran su duración.
-- **Imágenes sin descargar** (descarga en curso, fallida, o estado vencido): solo muestran `📎`, aunque el mensaje trae una miniatura que no requiere red.
-- **Links:** se ven como URL suelta, aunque el mensaje trae título, descripción y miniatura.
-- **Estados de solo texto:** pierden su color de fondo.
+  - they show as a single `📎 XXXX.f4v` line with no preview, duration or size;
+  - the `.f4v` extension comes from the system's MIME library, which puts it before `.mp4`.
+- **Voice notes and audios:** they do not show their duration.
+- **Images not downloaded** (download in progress, failed, or expired status): they only show `📎`, even though the message carries a thumbnail that requires no network.
+- **Links:** they look like a bare URL, even though the message carries a title, description and thumbnail.
+- **Text-only statuses:** they lose their background color.
 
-Todos esos datos vienen dentro del mensaje recibido. Mostrarlos no genera ninguna petición a WhatsApp.
+All of that data comes inside the received message. Showing it does not generate any request to WhatsApp.
 
-En la caché del usuario hay 1568 estados: 939 imágenes, 546 videos y 83 de texto o links.
+In the user's cache there are 1568 statuses: 939 images, 546 videos and 83 text or links.
 
 ## What Changes
 
-- **Metadatos sin red:** al recibir un mensaje de cualquier chat, el protocolo guarda junto al adjunto:
-  - la miniatura incrustada (`<msgId>.thumb.jpg`);
-  - un archivo `<msgId>.meta` con duración y tamaño (video y audio), si es nota de voz, título y descripción del link, y colores de fondo y texto (estados).
+- **Metadata without network:** when receiving a message from any chat, the protocol stores next to the attachment:
+  - the embedded thumbnail (`<msgId>.thumb.jpg`);
+  - a `<msgId>.meta` file with duration and size (video and audio), whether it is a voice note, link title and description, and background and text colors (statuses).
 - **Videos:**
-  - se guardan como `.mp4`;
-  - la línea del adjunto muestra `▶ 1:15 · 4.2 MB` cuando hay metadatos;
-  - inline se ve un fotograma del video descargado, generado localmente con un comando configurable (por defecto `ffmpegthumbnailer`). Si no hay fotograma, se usa la miniatura incrustada.
-- **Audio:** una nota de voz muestra `🎤 0:42`, y otro audio muestra `▶ 3:10 · 4.5 MB`.
-- **Miniatura de respaldo:** una imagen o video sin descargar muestra inline la miniatura incrustada, de baja resolución, en vez de solo `📎`. Esto no dispara descargas, y respeta los estados vencidos.
-- **Links:** debajo del texto se ven el título y la descripción, y la miniatura inline en tamaño reducido.
-- **Estados de solo texto:** se dibujan con su color de fondo y de texto.
-- Los mensajes recibidos antes de este cambio no tienen metadatos y se ven como hoy, salvo el fotograma de video, que solo necesita el archivo descargado.
+  - they are saved as `.mp4`;
+  - the attachment line shows `▶ 1:15 · 4.2 MB` when metadata is available;
+  - inline, a frame of the downloaded video is shown, generated locally with a configurable command (default `ffmpegthumbnailer`). If there is no frame, the embedded thumbnail is used.
+- **Audio:** a voice note shows `🎤 0:42`, and another audio shows `▶ 3:10 · 4.5 MB`.
+- **Fallback thumbnail:** an image or video not downloaded shows the embedded low-resolution thumbnail inline, instead of only `📎`. This does not trigger downloads, and it respects expired statuses.
+- **Links:** below the text the title and description are shown, and the thumbnail inline at reduced size.
+- **Text-only statuses:** they are drawn with their background and text colors.
+- Messages received before this change have no metadata and look as they do today, except for the video frame, which only needs the downloaded file.
 
-Fuera de alcance:
-- precarga y limpieza de disco de estados (change `status-prefetch-cleanup`);
-- reproducir video o audio dentro de la terminal (abrir sigue usando el visor externo, por ejemplo mpv);
-- obtener vista previa de links consultando la web.
+Out of scope:
+- status prefetching and disk cleanup (change `status-prefetch-cleanup`);
+- playing video or audio inside the terminal (opening still uses the external viewer, for example mpv);
+- getting link previews by querying the web.
 
 ## Capabilities
 
 ### New Capabilities
-- `media-preview`: vista previa de videos, audios, miniaturas, links y estados de texto en todos los chats, sin tráfico de red.
+- `media-preview`: preview of videos, audios, thumbnails, links and text statuses in all chats, without network traffic.
 
 ### Modified Capabilities
-<!-- No hay specs existentes en openspec/specs/. -->
+<!-- No existing specs in openspec/specs/. -->
 
 ## Impact
 
 - `lib/wmchat/go/gowm.go`:
-  - `ExtensionByType` prefiere `.mp4`;
-  - los manejadores de imagen, video, audio y texto extendido escriben la miniatura y los metadatos.
-- `src/uihistoryview.cpp`: línea de video y audio, imagen inline desde fotograma o miniatura, vista previa de link, y color de estados de texto.
-- Nuevo `src/mediainfo.{h,cpp}`: lectura y caché de metadatos, y generación del fotograma en segundo plano.
-- `src/uicolorconfig.{h,cpp}`: pares de color a demanda para colores ARGB.
+  - `ExtensionByType` prefers `.mp4`;
+  - the image, video, audio and extended text handlers write the thumbnail and the metadata.
+- `src/uihistoryview.cpp`: video and audio line, inline image from frame or thumbnail, link preview, and text status color.
+- New `src/mediainfo.{h,cpp}`: metadata reading and caching, and background frame generation.
+- `src/uicolorconfig.{h,cpp}`: on-demand color pairs for ARGB colors.
 - `src/uiconfig.cpp`: `video_thumbnail_command`.
 - `README.md`.
-- Sin cambios en la interfaz C del protocolo ni en el esquema de la caché.
+- No changes to the protocol's C interface or to the cache schema.

@@ -1,56 +1,56 @@
 ## Purpose
 
-Evitar que, al reconectar tras una suspensión o un corte de red, suenen de golpe las notificaciones de mensajes que ya se leyeron en el teléfono. Solo se avisa de los chats que siguen sin leer cuando termina la sincronización offline.
+Prevent notifications for messages already read on the phone from ringing all at once when reconnecting after a suspension or a network drop. Only chats that are still unread when the offline sync ends are notified.
 
 ## ADDED Requirements
 
-### Requirement: Retención durante la sincronización offline
-Cuando WhatsApp anuncia que va a entregar eventos pendientes de un perfil, nchat SHALL entrar en retención para ese perfil. Durante la retención, los mensajes entrantes MUST NOT generar campana ni notificación de escritorio al llegar. Los mensajes SHALL guardarse y mostrarse en la lista y el historial como siempre, incluido el marcador de no leído.
+### Requirement: Retention during the offline sync
+When WhatsApp announces that it is going to deliver pending events for a profile, nchat SHALL enter retention for that profile. During retention, incoming messages MUST NOT produce a bell or a desktop notification when they arrive. Messages SHALL be stored and shown in the list and the history as usual, including the unread marker.
 
-#### Scenario: Reconexión tras suspender
-- **WHEN** el equipo vuelve de suspensión, nchat reconecta y WhatsApp entrega 20 mensajes pendientes en 5 chats
-- **THEN** ningún mensaje suena ni genera notificación de escritorio mientras se reciben
+#### Scenario: Reconnect after suspend
+- **WHEN** the machine resumes from suspend, nchat reconnects and WhatsApp delivers 20 pending messages in 5 chats
+- **THEN** no message rings or generates a desktop notification while they are received
 
-#### Scenario: Reconexión sin eventos pendientes
-- **WHEN** nchat reconecta y WhatsApp no anuncia eventos pendientes
-- **THEN** no hay retención y los mensajes nuevos notifican como siempre
+#### Scenario: Reconnect without pending events
+- **WHEN** nchat reconnects and WhatsApp does not announce pending events
+- **THEN** there is no retention and new messages notify as usual
 
-### Requirement: Notificación al terminar la sincronización
-Al terminar la sincronización offline, tras un margen de 2 segundos, nchat SHALL revisar los chats que habrían notificado durante la retención. Para cada uno, si su último mensaje entrante sigue sin leer, SHALL enviar una sola notificación de escritorio con ese mensaje. Si se leyó en otro dispositivo durante la sincronización, MUST NOT notificar. La campana SHALL sonar como mucho una vez por fin de retención. Esto aplica aunque `notify_every_unread` esté activo.
+### Requirement: Notification when the sync ends
+When the offline sync ends, after a 2-second margin, nchat SHALL check the chats that would have notified during retention. For each one, if its last incoming message is still unread, it SHALL send a single desktop notification with that message. If it was read on another device during the sync, it MUST NOT notify. The bell SHALL ring at most once per end of retention. This applies even if `notify_every_unread` is enabled.
 
-#### Scenario: Mensajes ya leídos en el teléfono
-- **WHEN** la sincronización entrega 3 mensajes de Ana y después el recibo de leído de esos mensajes desde el teléfono
-- **THEN** al terminar no hay campana ni notificación de Ana
+#### Scenario: Messages already read on the phone
+- **WHEN** the sync delivers 3 messages from Alice and then the read receipt for those messages arrives from the phone
+- **THEN** at the end there is no bell and no notification for Alice
 
-#### Scenario: Chat que sigue sin leer
-- **WHEN** la sincronización entrega 4 mensajes de Juan sin recibo de leído
-- **THEN** al terminar aparece una sola notificación de Juan con su último mensaje, y la campana suena una vez
+#### Scenario: Chat that is still unread
+- **WHEN** the sync delivers 4 messages from Bob without a read receipt
+- **THEN** at the end a single notification from Bob appears with his last message, and the bell rings once
 
-#### Scenario: Varios chats sin leer
-- **WHEN** al terminar siguen sin leer los chats de Juan y de Marta
-- **THEN** aparece una notificación por cada chat y la campana suena una sola vez
+#### Scenario: Several unread chats
+- **WHEN** at the end the chats of Bob and Carol are still unread
+- **THEN** one notification appears per chat and the bell rings only once
 
-### Requirement: Reglas de notificación existentes
-La notificación diferida MUST respetar las mismas reglas que la notificación inmediata: chats silenciados (salvo menciones o `muted_notify_unread`), archivados y restringidos no notifican. `terminal_bell_active`/`terminal_bell_inactive` y `desktop_notify_*` SHALL evaluarse en el momento de notificar. Los mensajes enviados antes de la conexión inicial de nchat MUST NOT notificar, igual que hoy.
+### Requirement: Existing notification rules
+The deferred notification MUST follow the same rules as the immediate one: muted chats (except mentions or `muted_notify_unread`), archived and restricted chats do not notify. `terminal_bell_active`/`terminal_bell_inactive` and `desktop_notify_*` SHALL be evaluated at the moment of notifying. Messages sent before nchat's initial connection MUST NOT notify, as today.
 
-#### Scenario: Chat silenciado
-- **WHEN** un chat silenciado sin mención sigue sin leer al terminar la sincronización
-- **THEN** no notifica
+#### Scenario: Muted chat
+- **WHEN** a muted chat without a mention is still unread at the end of the sync
+- **THEN** it does not notify
 
-#### Scenario: Arranque de nchat
-- **WHEN** nchat arranca y WhatsApp entrega mensajes antiguos pendientes
-- **THEN** no notifican, igual que antes de este cambio
+#### Scenario: nchat startup
+- **WHEN** nchat starts and WhatsApp delivers old pending messages
+- **THEN** they do not notify, the same as before this change
 
-### Requirement: Tiempo máximo de retención
-Si la sincronización no termina en 60 segundos desde que empezó, nchat SHALL terminar la retención y aplicar la misma revisión que al terminar normalmente. Una desconexión durante la retención MUST NOT dejar la retención activa para siempre.
+### Requirement: Maximum retention time
+If the sync does not end within 60 seconds of starting, nchat SHALL end the retention and apply the same check as when it ends normally. A disconnection during retention MUST NOT leave retention active forever.
 
-#### Scenario: Fin de sincronización perdido
-- **WHEN** empieza la sincronización offline y no llega su fin en 60 segundos
-- **THEN** nchat termina la retención y notifica los chats que siguen sin leer
+#### Scenario: Lost end of sync
+- **WHEN** an offline sync starts and its end does not arrive within 60 seconds
+- **THEN** nchat ends the retention and notifies the chats that are still unread
 
-### Requirement: Notificación inmediata sin cambios
-Fuera de la retención, los mensajes nuevos SHALL notificar al llegar, como antes de este cambio.
+### Requirement: Immediate notification unchanged
+Outside retention, new messages SHALL notify on arrival, as before this change.
 
-#### Scenario: Mensaje con nchat conectado
-- **WHEN** nchat está conectado sin sincronización offline en curso y llega un mensaje
-- **THEN** notifica en el momento según la configuración actual
+#### Scenario: Message with nchat connected
+- **WHEN** nchat is connected with no offline sync in progress and a message arrives
+- **THEN** it notifies immediately according to the current configuration

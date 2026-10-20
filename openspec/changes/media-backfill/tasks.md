@@ -1,12 +1,12 @@
-## 1. Implementación
+## 1. Implementation
 
-- [x] 1.1 `UiImage::IsAudioFile` y config `media_probe_command`.
-- [x] 1.2 `MediaInfo::RequestProbe`: tarea en el hilo de trabajo, `popen` y `stat`, escritura o mezcla de `.meta`, actualización de la caché y flag de redibujo.
-- [x] 1.3 `UiHistoryView::Draw`: pedir el sondeo para video o audio descargado sin `seconds`.
+- [x] 1.1 `UiImage::IsAudioFile` and config `media_probe_command`.
+- [x] 1.2 `MediaInfo::RequestProbe`: task on the worker thread, `popen` and `stat`, writing or merging `.meta`, cache update and redraw flag.
+- [x] 1.3 `UiHistoryView::Draw`: request the probe for downloaded video or audio without `seconds`.
 - [x] 1.4 README.
 
-## 2. Verificación
+## 2. Verification
 
-- [x] 2.1 Sandbox: un video viejo descargado muestra la duración y el tamaño sin bloquear, se crea `.meta`, y tras reiniciar no se vuelve a sondear (log).
-- [x] 2.2 Sandbox: con `media_probe_command` inválido, solo el tamaño y sin reintentos.
-- [ ] 2.3 En vivo: un video enviado desde nchat muestra la duración y el tamaño.
+- [x] 2.1 Sandbox: an old downloaded video shows duration and size without blocking, `.meta` is created, and after restart it is not probed again (log).
+- [x] 2.2 Sandbox: with an invalid `media_probe_command`, only the size is shown and there are no retries.
+- [ ] 2.3 Live: a video sent from nchat shows duration and size.

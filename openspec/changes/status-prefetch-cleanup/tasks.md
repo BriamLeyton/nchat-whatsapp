@@ -1,21 +1,21 @@
-## 1. Precarga
+## 1. Prefetch
 
-- [x] 1.1 Configs `status_prefetch=1` y `status_prefetch_video_max_mb=16` en `ui.conf`.
-- [x] 1.2 Cola de precarga en `UiModel::Impl`: encolar desde `NewMessagesNotify` del chat de estados, avanzar en `NewMessageFileNotify`, respaldo de 120 s, y re-chequeo de vencido o ya descargado.
+- [x] 1.1 Configs `status_prefetch=1` and `status_prefetch_video_max_mb=16` in `ui.conf`.
+- [x] 1.2 Prefetch queue in `UiModel::Impl`: queue from `NewMessagesNotify` of the statuses chat, advance on `NewMessageFileNotify`, 120 s fallback, and re-check for expired or already downloaded.
 
-## 2. Limpieza
+## 2. Cleanup
 
 - [x] 2.1 `MessageCache::FetchFileInfosSync(profileId, chatId, beforeTime)`.
-- [x] 2.2 Hilo de limpieza al iniciar: borrar videos, actualizar `fileInfo` en caché y memoria, conservar archivos laterales, y registrar en el log.
-- [x] 2.3 Config `status_video_retention_days=0` (default: no borra).
+- [x] 2.2 Cleanup thread at startup: delete videos, update `fileInfo` in cache and memory, keep sidecar files, and log.
+- [x] 2.3 Config `status_video_retention_days=0` (default: does not delete).
 - [x] 2.4 README.
 
-## 3. Verificación
+## 3. Verification
 
-- [x] 3.1 Sandbox offline (copia con rutas reescritas a archivos falsos, sin tocar `tmp` real):
-  - [x] con el default 0 no se borra nada;
-  - [x] con 7, la limpieza borra videos de más de 7 días (273), conserva videos recientes (226) e imágenes (925);
-  - [x] la caché queda en "no descargado";
-  - [x] la vista muestra la línea del video sin indicador ni petición de descarga.
-- [x] 3.2 Sandbox offline: un video vigente de 5 MB con metadatos se encola una sola vez; uno de 40 MB, los vencidos y los videos sin metadatos no; sin conexión la cola no envía nada.
-- [ ] 3.3 En vivo: un estado nuevo llega ya descargado, y enviar un mensaje durante la precarga no espera la cola completa.
+- [x] 3.1 Offline sandbox (copy with paths rewritten to fake files, without touching the real `tmp`):
+  - [x] with the default 0 nothing is deleted;
+  - [x] with 7, cleanup deletes videos older than 7 days (273), keeps recent videos (226) and images (925);
+  - [x] the cache is left at "not downloaded";
+  - [x] the view shows the video line without an indicator or download request.
+- [x] 3.2 Offline sandbox: a current 5 MB video with metadata is queued only once; a 40 MB one, expired ones and videos without metadata are not; without a connection the queue sends nothing.
+- [ ] 3.3 Live: a new status arrives already downloaded, and sending a message during prefetch does not wait for the full queue.

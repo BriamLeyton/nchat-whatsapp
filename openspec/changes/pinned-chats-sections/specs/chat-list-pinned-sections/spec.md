@@ -1,86 +1,86 @@
 ## Purpose
 
-Sincronizar de forma confiable los chats fijados y archivados con WhatsApp, y organizar la lista de chats en secciones colapsables: fijados, otros y archivados.
+Reliably synchronize pinned and archived chats with WhatsApp, and organize the chat list into collapsible sections: pinned, others and archived.
 
 ## ADDED Requirements
 
-### Requirement: Recuperación del estado de WhatsApp
-Si el envío de un cambio de fijado o archivado, o una sincronización entrante, falla porque el estado local de WhatsApp está corrupto (`mismatching LTHash`), el sistema SHALL hacer un resync completo de esa colección desde el servidor. Si el snapshot del servidor también falla la verificación, el sistema SHALL pedir una copia de recuperación al teléfono, una vez por sesión y colección. Tras un resync o una recuperación exitosos, los fijados, archivados y silenciados MUST reflejarse en la lista sin reiniciar nchat.
+### Requirement: WhatsApp state recovery
+If sending a pin or archive change, or an incoming sync, fails because the local WhatsApp state is corrupt (`mismatching LTHash`), the system SHALL do a full resync of that collection from the server. If the server snapshot also fails verification, the system SHALL request a recovery copy from the phone, once per session and collection. After a successful resync or recovery, pinned, archived and muted chats MUST be reflected in the list without restarting nchat.
 
-#### Scenario: Alt-p con estado corrupto
-- **WHEN** el estado `regular_low` está corrupto, el usuario presiona `Alt-p` en un chat y el teléfono está en línea
-- **THEN** nchat recupera el estado y el siguiente `Alt-p` fija el chat en nchat y en el teléfono
+#### Scenario: Alt-p with corrupt state
+- **WHEN** the `regular_low` state is corrupt, the user presses `Alt-p` on a chat and the phone is online
+- **THEN** nchat recovers the state and the next `Alt-p` pins the chat in nchat and on the phone
 
-#### Scenario: Recuperación desde el teléfono
-- **WHEN** llega la copia de recuperación del teléfono
-- **THEN** los chats fijados y archivados en el teléfono aparecen así en nchat sin reiniciar
+#### Scenario: Recovery from the phone
+- **WHEN** the recovery copy from the phone arrives
+- **THEN** the chats pinned and archived on the phone appear that way in nchat without restarting
 
-### Requirement: Secciones de la lista
-La lista de chats SHALL agrupar los chats en tres secciones, en este orden: `Fijados` (fijados), `Otros` (ni fijados ni archivados) y `Archivados` (archivados). Dentro de cada sección se mantiene el orden actual. Cuando hay más de una sección con chats, cada sección con chats SHALL mostrar una fila de título. Las filas de título MUST NOT ser seleccionables. Cuando solo `Otros` tiene chats, la lista MUST NOT mostrar títulos.
+### Requirement: List sections
+The chat list SHALL group chats into three sections, in this order: `Fijados` (pinned), `Otros` (neither pinned nor archived) and `Archivados` (archived). Within each section the current order is kept. When more than one section has chats, each section with chats SHALL show a title row. Title rows MUST NOT be selectable. When only `Otros` has chats, the list MUST NOT show titles.
 
-#### Scenario: Lista con fijados y archivados
-- **WHEN** hay 2 chats fijados, 10 sin fijar ni archivar y 74 archivados, y ninguna sección está colapsada
-- **THEN** la lista muestra `Fijados`, los 2 fijados, `Otros`, los 10, `Archivados` y los 74
+#### Scenario: List with pinned and archived chats
+- **WHEN** there are 2 pinned chats, 10 neither pinned nor archived, and 74 archived, and no section is collapsed
+- **THEN** the list shows `Fijados`, the 2 pinned chats, `Otros`, the 10, `Archivados` and the 74
 
-#### Scenario: Navegación entre secciones
-- **WHEN** el chat seleccionado es el último fijado y el usuario pasa al siguiente chat
-- **THEN** la selección salta el título y queda en el primer chat de `Otros`
+#### Scenario: Navigation between sections
+- **WHEN** the selected chat is the last pinned one and the user moves to the next chat
+- **THEN** the selection skips the title and lands on the first chat of `Otros`
 
-#### Scenario: Solo otros
-- **WHEN** no hay chats fijados ni archivados
-- **THEN** la lista se ve como antes de este cambio
+#### Scenario: Only others
+- **WHEN** there are no pinned or archived chats
+- **THEN** the list looks as it did before this change
 
-### Requirement: Colapsar secciones
-La tecla `toggle_others` (por defecto `Alt-o`) SHALL colapsar o expandir `Otros`, y `toggle_archived` (por defecto `Alt-h`) `Archivados`. `Fijados` no se colapsa. Una sección colapsada:
-- muestra solo su título, seguido del número de chats y de `unread_indicator` si alguno tiene no leídos;
-- sus chats se omiten al pasar al chat siguiente o anterior;
-- si el chat seleccionado queda oculto al colapsarla, la selección MUST pasar al chat visible más cercano, o a ninguno si no hay chats visibles.
+### Requirement: Collapse sections
+The `toggle_others` key (default `Alt-o`) SHALL collapse or expand `Otros`, and `toggle_archived` (default `Alt-h`) `Archivados`. `Fijados` does not collapse. A collapsed section:
+- shows only its title, followed by the number of chats and `unread_indicator` if any has unread messages;
+- has its chats skipped when moving to the next or previous chat;
+- if the selected chat becomes hidden by collapsing it, the selection MUST move to the nearest visible chat, or to none if there are no visible chats.
 
-Abrir un chat oculto por otra vía (ir a no leído, ir a chat, seleccionar contacto) MUST expandir su sección. El estado de cada sección SHALL guardarse en `list_others_collapsed` y `list_archived_collapsed`, y restaurarse al arrancar. `Archivados` empieza colapsada por defecto.
+Opening a hidden chat by another route (go to unread, go to chat, select contact) MUST expand its section. The state of each section SHALL be saved in `list_others_collapsed` and `list_archived_collapsed`, and restored at startup. `Archivados` starts collapsed by default.
 
-#### Scenario: Colapsar otros
-- **WHEN** `Otros` está expandida y el usuario presiona `Alt-o`
-- **THEN** la sección muestra solo `Otros (N)` y Tab recorre los chats de las secciones expandidas
+#### Scenario: Collapse others
+- **WHEN** `Otros` is expanded and the user presses `Alt-o`
+- **THEN** the section shows only `Otros (N)` and Tab cycles through the chats of the expanded sections
 
-#### Scenario: Mensaje nuevo en sección colapsada
-- **WHEN** `Otros` está colapsada y llega un mensaje a uno de sus chats
-- **THEN** el título muestra `Otros (N) *`
+#### Scenario: New message in a collapsed section
+- **WHEN** `Otros` is collapsed and a message arrives in one of its chats
+- **THEN** the title shows `Otros (N) *`
 
-#### Scenario: Ir a no leído oculto
-- **WHEN** el chat no leído al que lleva `unread_chat` está en `Otros` colapsada
-- **THEN** esa sección se expande y se abre el chat
+#### Scenario: Go to a hidden unread chat
+- **WHEN** the unread chat that `unread_chat` leads to is in a collapsed `Otros`
+- **THEN** that section expands and the chat is opened
 
-#### Scenario: No leídos archivados
-- **WHEN** `Archivados` está colapsada y un chat archivado tiene no leídos
-- **THEN** `unread_chat` lo omite
+#### Scenario: Archived unread chats
+- **WHEN** `Archivados` is collapsed and an archived chat has unread messages
+- **THEN** `unread_chat` skips it
 
-#### Scenario: Reinicio
-- **WHEN** el usuario cierra nchat con `Otros` colapsada y `Archivados` expandida
-- **THEN** al volver a abrir, las secciones conservan ese estado
+#### Scenario: Restart
+- **WHEN** the user closes nchat with `Otros` collapsed and `Archivados` expanded
+- **THEN** on reopening, the sections keep that state
 
-### Requirement: Chats archivados visibles
-Los chats archivados SHALL aparecer en la sección `Archivados`, ordenados por último mensaje. Se pueden abrir, leer y responder. Los mensajes nuevos de un chat archivado MUST mostrarse en su historial y marcarlo como no leído, pero MUST NOT generar notificación ni desarchivarlo. Archivar o desarchivar con `Alt-a` o desde el teléfono SHALL mover el chat de sección en vivo.
+### Requirement: Visible archived chats
+Archived chats SHALL appear in the `Archivados` section, sorted by last message. They can be opened, read and replied to. New messages in an archived chat MUST be shown in its history and mark it as unread, but MUST NOT generate a notification or unarchive it. Archiving or unarchiving with `Alt-a` or from the phone SHALL move the chat between sections live.
 
-#### Scenario: Mensaje en chat archivado
-- **WHEN** llega un mensaje a un chat archivado
-- **THEN** el chat sigue en `Archivados`, muestra `*` y no suena notificación
+#### Scenario: Message in an archived chat
+- **WHEN** a message arrives in an archived chat
+- **THEN** the chat stays in `Archivados`, shows `*` and no notification sounds
 
-#### Scenario: Archivar con Alt-a
-- **WHEN** el usuario presiona `Alt-a` en un chat de `Otros` y `Archivados` está colapsada
-- **THEN** el chat pasa a `Archivados` y la selección pasa al chat visible más cercano
+#### Scenario: Archive with Alt-a
+- **WHEN** the user presses `Alt-a` on a chat in `Otros` and `Archivados` is collapsed
+- **THEN** the chat moves to `Archivados` and the selection moves to the nearest visible chat
 
-#### Scenario: Desarchivar desde el teléfono
-- **WHEN** el usuario desarchiva un chat en el teléfono
-- **THEN** el chat pasa a `Otros` en nchat sin reiniciar
+#### Scenario: Unarchive from the phone
+- **WHEN** the user unarchives a chat on the phone
+- **THEN** the chat moves to `Otros` in nchat without restarting
 
-### Requirement: Configuración
-El sistema SHALL leer:
-- de `ui.conf`: `list_pinned_header` (por defecto `Fijados`), `list_others_header` (`Otros`), `list_archived_header` (`Archivados`), `list_others_collapsed` (`0`) y `list_archived_collapsed` (`1`);
-- de `key.conf`: `toggle_others` (por defecto `Alt-o`) y `toggle_archived` (`Alt-h`);
-- de `color.conf`: `list_color_header_fg/_bg`.
+### Requirement: Configuration
+The system SHALL read:
+- from `ui.conf`: `list_pinned_header` (default `Fijados`), `list_others_header` (`Otros`), `list_archived_header` (`Archivados`), `list_others_collapsed` (`0`) and `list_archived_collapsed` (`1`);
+- from `key.conf`: `toggle_others` (default `Alt-o`) and `toggle_archived` (`Alt-h`);
+- from `color.conf`: `list_color_header_fg/_bg`.
 
-Las claves MUST agregarse con su valor por defecto cuando no existan, sin modificar las existentes.
+The keys MUST be added with their default value when they do not exist, without modifying existing ones.
 
-#### Scenario: Primera ejecución tras actualizar
-- **WHEN** el usuario arranca esta versión con sus archivos de configuración existentes
-- **THEN** los archivos incluyen las claves nuevas con sus valores por defecto y el resto queda igual
+#### Scenario: First run after updating
+- **WHEN** the user starts this version with their existing configuration files
+- **THEN** the files include the new keys with their default values and the rest stays the same

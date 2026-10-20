@@ -1,35 +1,35 @@
 ## Purpose
 
-Mostrar duración y tamaño de videos y audios que ya están en disco y no tienen esos datos (mensajes viejos o enviados desde nchat), calculándolos localmente.
+Show duration and size for videos and audios that are already on disk and lack that data (old messages or files sent from nchat), computed locally.
 
 ## ADDED Requirements
 
-### Requirement: Relleno local de duración y tamaño
-Al mostrar un adjunto de video o audio descargado sin duración conocida, el sistema SHALL obtener en segundo plano:
-- la duración, con `media_probe_command`;
-- el tamaño, del archivo en disco.
+### Requirement: Local backfill of duration and size
+When showing a downloaded video or audio attachment with no known duration, the system SHALL obtain in the background:
+- the duration, with `media_probe_command`;
+- the size, from the file on disk.
 
-SHALL guardarlos en `<msgId>.meta` y redibujar al terminar. El relleno MUST NOT generar peticiones de red, y MUST NOT bloquear la UI.
+It SHALL store them in `<msgId>.meta` and redraw when done. The backfill MUST NOT generate network requests, and MUST NOT block the UI.
 
-#### Scenario: Video viejo descargado
-- **WHEN** se muestra un video descargado antes de `media-preview`
-- **THEN** poco después su línea muestra `▶ m:ss · N.N MB`, y al reiniciar se muestra sin volver a sondear
+#### Scenario: Old downloaded video
+- **WHEN** a video downloaded before `media-preview` is shown
+- **THEN** shortly after, its line shows `▶ m:ss · N.N MB`, and after a restart it is shown without probing again
 
-#### Scenario: Video enviado desde nchat
-- **WHEN** se muestra un video que el usuario envió desde nchat
-- **THEN** su línea muestra la duración y el tamaño
+#### Scenario: Video sent from nchat
+- **WHEN** a video that the user sent from nchat is shown
+- **THEN** its line shows the duration and the size
 
-#### Scenario: Nota de voz vieja
-- **WHEN** se muestra una nota de voz vieja descargada
-- **THEN** su línea muestra `▶` con la duración y el tamaño
+#### Scenario: Old voice note
+- **WHEN** an old downloaded voice note is shown
+- **THEN** its line shows `▶` with the duration and the size
 
-#### Scenario: Adjunto no descargado
-- **WHEN** se muestra un video viejo no descargado
-- **THEN** no se sondea, y la línea queda como hoy
+#### Scenario: Attachment not downloaded
+- **WHEN** an old video not downloaded is shown
+- **THEN** it is not probed, and the line stays as it is today
 
-### Requirement: Fallos de sondeo
-Si `media_probe_command` está vacío o falla, el sistema SHALL guardar solo el tamaño, y MUST NOT reintentar ese archivo en la misma sesión.
+### Requirement: Probe failures
+If `media_probe_command` is empty or fails, the system SHALL store only the size, and MUST NOT retry that file in the same session.
 
-#### Scenario: Sin ffprobe
-- **WHEN** el comando falla
-- **THEN** la línea muestra solo `▶ N.N MB`
+#### Scenario: Without ffprobe
+- **WHEN** the command fails
+- **THEN** the line shows only `▶ N.N MB`

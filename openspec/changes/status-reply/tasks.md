@@ -1,12 +1,12 @@
-## 1. Implementación
+## 1. Implementation
 
-- [x] 1.1 `ChatMessage.quotedChatId` y `quotedFilePath` en `protocol.h`, pasados por `wmchat.cpp` a `CWmSendMessage`.
-- [x] 1.2 `WmSendMessage`: con `status@broadcast`, `ContextInfo.RemoteJID` y cita como imagen o video con `JPEGThumbnail`; si no, como hoy.
-- [x] 1.3 `OnKeySendMsg` en Status: validaciones (sin selección, propio, vencido, edición), envío al autor con la cita, paso al chat del autor y avisos según el resultado.
-- [x] 1.4 `UiHistoryView`: buscar la cita en Status si no está en el chat.
-- [x] 1.5 README: responder estados.
+- [x] 1.1 `ChatMessage.quotedChatId` and `quotedFilePath` in `protocol.h`, passed by `wmchat.cpp` to `CWmSendMessage`.
+- [x] 1.2 `WmSendMessage`: with `status@broadcast`, `ContextInfo.RemoteJID` and the quote as an image or video with `JPEGThumbnail`; otherwise as today.
+- [x] 1.3 `OnKeySendMsg` in Status: validations (no selection, own, expired, editing), sending to the author with the quote, moving to the author's chat and notices according to the result.
+- [x] 1.4 `UiHistoryView`: look up the quote in Status if it is not in the chat.
+- [x] 1.5 README: replying to statuses.
 
-## 2. Verificación
+## 2. Verification
 
-- [x] 2.1 Sandbox sin red: sin selección, propio y vencido muestran su aviso y no envían; con un estado vigente el log muestra el envío al autor con `RemoteJID status@broadcast` y la miniatura.
-- [ ] 2.2 En vivo: responder un estado real de un contacto; en el teléfono del contacto (o en el tuyo, en su chat) la respuesta aparece citando el estado, y en nchat la cita muestra el texto o archivo del estado.
+- [x] 2.1 Offline sandbox without network: without selection, own and expired show their notice and do not send; with a current status the log shows the send to the author with `RemoteJID status@broadcast` and the thumbnail.
+- [ ] 2.2 Live: reply to a real status from a contact; on the contact's phone (or yours, in their chat) the reply appears quoting the status, and in nchat the quote shows the status's text or file.

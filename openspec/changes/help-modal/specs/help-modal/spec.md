@@ -1,48 +1,48 @@
 ## Purpose
 
-Mostrar todos los comandos de nchat en un modal legible, con atajos en notación `Alt+p` / `Ctrl+s`.
+Show all nchat commands in a readable modal, with shortcuts in the `Alt+p` / `Ctrl+s` notation.
 
 ## ADDED Requirements
 
-### Requirement: Modal de ayuda
-La tecla `toggle_help` (por defecto `Ctrl-g`) SHALL abrir un modal centrado con la lista de comandos agrupada por categoría:
+### Requirement: Help modal
+The `toggle_help` key (default `Ctrl-g`) SHALL open a centered modal with the list of commands grouped by category:
 - Chats;
-- Mensajes;
-- Mensaje seleccionado;
-- Edición de texto;
-- Vista.
+- Messages;
+- Selected message;
+- Text editing;
+- View.
 
-Cada entrada MUST mostrar el atajo configurado y una descripción en español. Las funciones sin tecla asignada MUST NOT aparecer.
+Each entry MUST show the configured shortcut and a description in Spanish. Functions with no assigned key MUST NOT appear.
 
-#### Scenario: Abrir la ayuda
-- **WHEN** el usuario presiona `Ctrl-g` en la vista principal
-- **THEN** aparece un modal con los comandos, incluyendo `Alt+p  Fijar/desfijar chat`
+#### Scenario: Open help
+- **WHEN** the user presses `Ctrl-g` in the main view
+- **THEN** a modal appears with the commands, including `Alt+p  Fijar/desfijar chat`
 
-#### Scenario: Tecla reasignada
-- **WHEN** `key.conf` tiene `pin=\33\153`
-- **THEN** el modal muestra `Alt+k  Fijar/desfijar chat`
+#### Scenario: Reassigned key
+- **WHEN** `key.conf` has `pin=\33\153`
+- **THEN** the modal shows `Alt+k  Fijar/desfijar chat`
 
-### Requirement: Cerrar y desplazar
-El modal SHALL cerrarse con `Esc`, `toggle_help` o `cancel` sin ejecutar ninguna otra acción. Si la lista no cabe en el modal, `↑`/`↓` MUST desplazarla una línea y `PgUp`/`PgDn` una página. Al cambiar el tamaño de la terminal, el modal MUST redibujarse con el nuevo tamaño.
+### Requirement: Close and scroll
+The modal SHALL close with `Esc`, `toggle_help` or `cancel` without running any other action. If the list does not fit in the modal, `↑`/`↓` MUST scroll it one line and `PgUp`/`PgDn` one page. When the terminal size changes, the modal MUST redraw with the new size.
 
-#### Scenario: Cerrar con Esc
-- **WHEN** el modal está abierto y el usuario presiona `Esc`
-- **THEN** el modal se cierra en menos de 100 ms y la vista vuelve como estaba
+#### Scenario: Close with Esc
+- **WHEN** the modal is open and the user presses `Esc`
+- **THEN** the modal closes in less than 100 ms and the view returns as it was
 
-#### Scenario: Lista larga
-- **WHEN** la terminal es más baja que la lista de comandos
-- **THEN** el modal muestra un indicador de que hay más contenido y `↓` lo desplaza
+#### Scroll long list
+- **WHEN** the terminal is shorter than the command list
+- **THEN** the modal shows an indicator that there is more content, and `↓` scrolls it
 
-### Requirement: Notación de teclas
-El modal y la barra de ayuda inferior SHALL mostrar las teclas con `Alt+<tecla>` y `Ctrl+<tecla>` (por ejemplo `Alt+p`, `Ctrl+s`). Los defaults de `help_prefix_meta` y `help_prefix_ctrl` MUST ser `Alt+` y `Ctrl+`. Los valores anteriores `M-` y `^` MUST migrarse a los nuevos. Cualquier otro valor personalizado MUST respetarse.
+### Requirement: Key notation
+The modal and the bottom help bar SHALL show keys as `Alt+<key>` and `Ctrl+<key>` (for example `Alt+p`, `Ctrl+s`). The defaults of `help_prefix_meta` and `help_prefix_ctrl` MUST be `Alt+` and `Ctrl+`. The previous values `M-` and `^` MUST be migrated to the new ones. Any other custom value MUST be respected.
 
-#### Scenario: Configuración existente
-- **WHEN** `ui.conf` tiene `help_prefix_meta=M-` y `help_prefix_ctrl=^`
-- **THEN** tras arrancar, `ui.conf` tiene `help_prefix_meta=Alt+` y `help_prefix_ctrl=Ctrl+`, y la ayuda muestra `Alt+p`
+#### Scenario: Existing configuration
+- **WHEN** `ui.conf` has `help_prefix_meta=M-` and `help_prefix_ctrl=^`
+- **THEN** after startup, `ui.conf` has `help_prefix_meta=Alt+` and `help_prefix_ctrl=Ctrl+`, and help shows `Alt+p`
 
-### Requirement: Barra inferior
-La barra de ayuda inferior SHALL seguir mostrándose u ocultándose según `help_enabled` en `ui.conf`. `toggle_help` MUST NOT alternarla.
+### Requirement: Bottom bar
+The bottom help bar SHALL keep being shown or hidden according to `help_enabled` in `ui.conf`. `toggle_help` MUST NOT toggle it.
 
-#### Scenario: Barra activa
-- **WHEN** `help_enabled=1` y el usuario abre y cierra el modal
-- **THEN** la barra inferior sigue visible
+#### Scenario: Bar enabled
+- **WHEN** `help_enabled=1` and the user opens and closes the modal
+- **THEN** the bottom bar stays visible

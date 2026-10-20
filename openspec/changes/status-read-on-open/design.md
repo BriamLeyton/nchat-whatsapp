@@ -1,23 +1,23 @@
 ## Context
 
-- `UiHistoryView::Draw` llama `MarkReadLocked` por cada mensaje recibido no leído que dibuja.
-- `UiModel::Impl::MarkRead` aplica las condiciones de `mark_read_*`. Si el estado está vencido, lo marca en local (memoria y caché, sin petición). Si no, envía `MarkMessageReadRequest`.
-- `open` (`OnKeyOpenAttachment`) abre el adjunto del mensaje seleccionado. Si no está descargado, primero lo descarga y lo abre cuando llega. Para estados vencidos la descarga está bloqueada.
-- `open_msg` (`OnKeyOpenMsg`) muestra el texto del mensaje seleccionado en el visor.
+- `UiHistoryView::Draw` calls `MarkReadLocked` for every unread received message it draws.
+- `UiModel::Impl::MarkRead` applies the conditions of `mark_read_*`. If the status is expired, it marks it locally (memory and cache, no request). Otherwise it sends `MarkMessageReadRequest`.
+- `open` (`OnKeyOpenAttachment`) opens the attachment of the selected message. If it is not downloaded, it first downloads it and opens it when it arrives. For expired statuses the download is blocked.
+- `open_msg` (`OnKeyOpenMsg`) shows the text of the selected message in the viewer.
 
 ## Decisions
 
-### 1. Bloqueo por dibujo
-- `MarkRead` gana un parámetro `p_Opened = false`.
-- Si el chat es de estados y `p_Opened` es falso, sale sin hacer nada. El dibujo nunca pasa `true`.
+### 1. Block on drawing
+- `MarkRead` gains a parameter `p_Opened = false`.
+- If the chat is the statuses chat and `p_Opened` is false, it returns without doing anything. Drawing never passes `true`.
 
-### 2. Marcado al abrir
-- Nueva función `MarkStatusOpened()`: toma el mensaje seleccionado del chat actual. Si es un estado recibido y no leído, llama `MarkRead(profile, chat, msgId, true, true)`.
-- Se llama desde `OnKeyOpenAttachment` (solo cuando la acción viene del usuario, no del aviso de descarga) y desde `OnKeyOpenMsg`.
-- **Momento:** se marca al presionar la tecla, aunque el adjunto todavía deba descargarse, porque la intención de verlo ya existe. Si es un estado vencido sin archivo, no se puede abrir; aun así se marca en local, sin aviso.
-- Las demás condiciones de `MarkRead` se mantienen: terminal activa, etc.
+### 2. Marking on open
+- New function `MarkStatusOpened()`: takes the selected message of the current chat. If it is a received unread status, it calls `MarkRead(profile, chat, msgId, true, true)`.
+- It is called from `OnKeyOpenAttachment` (only when the action comes from the user, not from the download notice) and from `OnKeyOpenMsg`.
+- **Timing:** it is marked when the key is pressed, even if the attachment still needs to be downloaded, because the intention to view it already exists. If it is an expired status without a file, it cannot be opened; it is still marked locally, without a notice.
+- The other conditions of `MarkRead` are kept: active terminal, etc.
 
 ## Risks / Trade-offs
 
-- **Imágenes inline:** con `inline_images_enabled` la imagen del estado se ve en la lista sin abrirla, y no se marca. Es lo pedido: visto = abierto.
-- **Fila de Status:** queda con indicador de no leído mientras haya estados sin abrir. Ya pasa hoy con estados fuera de pantalla.
+- **Inline images:** with `inline_images_enabled` the status image is seen in the list without opening it, and it is not marked. This is what was requested: seen = opened.
+- **Status row:** it keeps the unread indicator while there are unopened statuses. This already happens today with statuses off screen.

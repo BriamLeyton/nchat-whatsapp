@@ -1,64 +1,64 @@
 ## Purpose
 
-Mostrar los estados de WhatsApp como una entrada fija, llamativa y seleccionable al inicio de la lista de chats, separada de las conversaciones.
+Show WhatsApp statuses as a fixed, eye-catching, selectable entry at the top of the chat list, separate from conversations.
 
 ## ADDED Requirements
 
-### Requirement: Entrada fija de estados
-Cuando existe el chat de estados (`status@broadcast`) y `status_broadcast` es distinto de `0`, la lista SHALL mostrarlo como la primera fila, antes de cualquier título de sección y de cualquier chat. La fila MUST NOT pertenecer a ninguna sección: no se cuenta en los títulos, no se oculta al colapsar secciones y no cambia cuándo se muestran los títulos.
+### Requirement: Fixed statuses entry
+When the statuses chat (`status@broadcast`) exists and `status_broadcast` is not `0`, the list SHALL show it as the first row, before any section title and any chat. The row MUST NOT belong to any section: it is not counted in titles, it is not hidden when sections collapse, and it does not change when titles are shown.
 
-#### Scenario: Lista con fijados
-- **WHEN** hay chats fijados y existe el chat de estados
-- **THEN** la primera fila es la de estados y debajo aparece el título `PINNED`
+#### Scenario: List with pinned chats
+- **WHEN** there are pinned chats and the statuses chat exists
+- **THEN** the first row is the statuses row and below it the `PINNED` title appears
 
-#### Scenario: Others colapsado
-- **WHEN** la sección "Others" está colapsada
-- **THEN** la fila de estados sigue visible y "Others" no cuenta los estados
+#### Scenario: Others collapsed
+- **WHEN** the "Others" section is collapsed
+- **THEN** the statuses row remains visible and "Others" does not count the statuses
 
-#### Scenario: Sin fijados ni archivados
-- **WHEN** solo hay chats en "Others" y existe el chat de estados
-- **THEN** no se muestran títulos de sección y la fila de estados queda primera
+#### Scenario: No pinned or archived chats
+- **WHEN** there are only chats in "Others" and the statuses chat exists
+- **THEN** no section titles are shown and the statuses row is first
 
-#### Scenario: Estados ocultos
+#### Scenario: Statuses hidden
 - **WHEN** `status_broadcast=0`
-- **THEN** no se muestra la fila de estados
+- **THEN** the statuses row is not shown
 
-### Requirement: Estilo propio
-La fila de estados SHALL dibujarse con el nombre de `list_status_name` y con el color y el atributo de `list_color_status` y `list_attr_status`, distintos de los títulos de sección. Por defecto MUST usar texto `#6fcfa8` sobre fondo `#173029` en negrita. Cuando está seleccionada MUST usar además el atributo de selección de la lista.
+### Requirement: Own style
+The statuses row SHALL be drawn with the name from `list_status_name` and with the color and attribute from `list_color_status` and `list_attr_status`, different from section titles. By default it MUST use `#6fcfa8` text on a `#173029` background in bold. When selected it MUST also use the list's selection attribute.
 
-#### Scenario: Fila sin seleccionar
-- **WHEN** la fila de estados no está seleccionada
-- **THEN** se ve con fondo verde oscuro y texto verde en negrita, ocupando todo el ancho de la lista
+#### Scenario: Row not selected
+- **WHEN** the statuses row is not selected
+- **THEN** it is shown with a dark green background and green bold text, spanning the full width of the list
 
-#### Scenario: Fila seleccionada
-- **WHEN** la fila de estados está seleccionada
-- **THEN** se ve con el atributo de selección y se distingue de cuando no está seleccionada
+#### Scenario: Row selected
+- **WHEN** the statuses row is selected
+- **THEN** it is shown with the selection attribute and is distinguishable from when it is not selected
 
-#### Scenario: Color personalizado
-- **WHEN** `color.conf` contiene `list_color_status_bg=yellow`
-- **THEN** la fila de estados se ve con fondo amarillo
+#### Scenario: Custom color
+- **WHEN** `color.conf` contains `list_color_status_bg=yellow`
+- **THEN** the statuses row is shown with a yellow background
 
-### Requirement: Selección
-La fila de estados SHALL poder seleccionarse como cualquier chat: con chat siguiente y anterior, con ir a chat y al arrancar si era el chat actual. Al seleccionarla, el historial MUST mostrar los estados.
+### Requirement: Selection
+The statuses row SHALL be selectable like any chat: with next and previous chat, with go to chat, and at startup if it was the current chat. When selected, the history MUST show the statuses.
 
-#### Scenario: Chat anterior desde el primer chat
-- **WHEN** el primer chat debajo de la fila de estados está seleccionado y el usuario va al chat anterior
-- **THEN** queda seleccionada la fila de estados
+#### Scenario: Previous chat from the first chat
+- **WHEN** the first chat below the statuses row is selected and the user goes to the previous chat
+- **THEN** the statuses row becomes selected
 
-#### Scenario: Historial de estados
-- **WHEN** la fila de estados está seleccionada
-- **THEN** el historial muestra los estados con el nombre de quien lo publicó
+#### Scenario: Statuses history
+- **WHEN** the statuses row is selected
+- **THEN** the history shows the statuses with the name of whoever posted each one
 
-### Requirement: Estados no vistos
-La fila de estados SHALL mostrar el indicador de no leído cuando hay estados no vistos, igual que un chat. Ver los estados MUST quitar el indicador.
+### Requirement: Unseen statuses
+The statuses row SHALL show the unread indicator when there are unseen statuses, like a chat. Viewing the statuses MUST remove the indicator.
 
-#### Scenario: Estado nuevo
-- **WHEN** un contacto publica un estado
-- **THEN** la fila de estados muestra `*` y, con `status_broadcast=1`, no hay notificación
+#### Scenario: New status
+- **WHEN** a contact posts a status
+- **THEN** the statuses row shows `*` and, with `status_broadcast=1`, there is no notification
 
-### Requirement: Sin fijar ni archivar
-Fijar o archivar con la fila de estados seleccionada SHALL NOT tener efecto, y MUST NOT enviar cambios a WhatsApp.
+### Requirement: Not pinnable or archivable
+Pinning or archiving with the statuses row selected SHALL NOT have any effect, and MUST NOT send any change to WhatsApp.
 
-#### Scenario: Alt-p sobre estados
-- **WHEN** la fila de estados está seleccionada y el usuario presiona `Alt-p`
-- **THEN** no cambia nada y no se envía nada a WhatsApp
+#### Scenario: Alt-p on statuses
+- **WHEN** the statuses row is selected and the user presses `Alt-p`
+- **THEN** nothing changes and nothing is sent to WhatsApp

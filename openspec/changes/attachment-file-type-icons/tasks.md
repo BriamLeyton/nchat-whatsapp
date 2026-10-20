@@ -1,21 +1,21 @@
-## 1. Clasificación por tipo de archivo
+## 1. Classification by file type
 
-- [x] 1.1 Agregar `enum FileCategory` (`Other`, `Image`, `Video`, `Audio`, `Pdf`, `Document`, `Spreadsheet`, `Archive`) y `FileUtil::GetFileCategory(const std::string& p_Path)` en `lib/ncutil/src/fileutil.h/.cpp`, con la tabla de extensiones del spec, usando la extensión de `BaseName` en minúsculas. Verificar que `./make.sh` compila sin warnings nuevos.
-- [x] 1.2 Agregar `tests/test003.cpp` (registrado en `tests/CMakeLists.txt`) que cubra: cada categoría, extensión en mayúsculas (`Factura.PDF`), extensión desconocida (`firmware.bin`), sin extensión (`LEEME`) y punto solo en el directorio (`/tmp/a.zip/LEEME`). Verificar con `./make.sh tests` que pasa.
+- [x] 1.1 Add `enum FileCategory` (`Other`, `Image`, `Video`, `Audio`, `Pdf`, `Document`, `Spreadsheet`, `Archive`) and `FileUtil::GetFileCategory(const std::string& p_Path)` in `lib/ncutil/src/fileutil.h/.cpp`, with the extension table from the spec, using the lowercased extension of `BaseName`. Verify that `./make.sh` compiles without new warnings.
+- [x] 1.2 Add `tests/test003.cpp` (registered in `tests/CMakeLists.txt`) covering: each category, uppercase extension (`Factura.PDF`), unknown extension (`firmware.bin`), no extension (`LEEME`) and a dot only in the directory (`/tmp/a.zip/LEEME`). Verify with `./make.sh tests` that it passes.
 
-## 2. Configuración
+## 2. Configuration
 
-- [x] 2.1 Agregar a los defaults de `src/uiconfig.cpp` `attachment_type_icons_enabled=1` y `attachment_indicator_image/video/audio/voice/pdf/document/spreadsheet/archive` con los emoji del spec, como escapes UTF-8 igual que `attachment_indicator`. Verificar que tras arrancar y salir `~/.config/nchat/ui.conf` contiene las claves nuevas y el resto queda igual (`diff` contra un respaldo).
-- [x] 2.2 Documentar las opciones nuevas en `README.md`, en la lista de `ui.conf` y con una sección `### attachment_type_icons_enabled` junto a `### attachment_indicator`. Verificar leyendo el diff.
+- [x] 2.1 Add to the defaults in `src/uiconfig.cpp` `attachment_type_icons_enabled=1` and `attachment_indicator_image/video/audio/voice/pdf/document/spreadsheet/archive` with the emoji from the spec, as UTF-8 escapes like `attachment_indicator`. Verify that after starting and exiting, `~/.config/nchat/ui.conf` contains the new keys and the rest stays the same (`diff` against a backup).
+- [x] 2.2 Document the new options in `README.md`, in the `ui.conf` list and with a section `### attachment_type_icons_enabled` next to `### attachment_indicator`. Verify by reading the diff.
 
-## 3. Historial
+## 3. History
 
-- [x] 3.1 En `src/uihistoryview.cpp`, agregar el mapa `static` categoría → icono y elegir el icono de la línea de adjunto con `GetFileCategory` y `meta->isPtt`, con fallback a `attachment_indicator` si el icono está vacío o la función está desactivada. Verificar en un chat real que una foto, un video, un PDF y un `.zip` muestran `📷`, `🎬`, `📕` y `📦`.
-- [x] 3.2 Omitir `🎤 ` del sufijo de duración de las notas de voz cuando la función está activa. Verificar que una nota de voz se ve `🎤 <archivo>.ogg 0:42` y, con `attachment_type_icons_enabled=0`, `📎 <archivo>.ogg 🎤 0:42`.
-- [x] 3.3 Reemplazar la detección de la línea de adjunto por prefijo (`rfind(attachmentIndicator, 0)`) por un flag `hasAttachmentLine` y `lineIndex == 0`, con un comentario sobre el orden de inserción. Verificar que todas las líneas de adjunto usan `history_text_attachment_color` y que un caption que empieza con `📷` usa el color normal.
+- [x] 3.1 In `src/uihistoryview.cpp`, add the `static` map category → icon and choose the attachment-line icon using `GetFileCategory` and `meta->isPtt`, with fallback to `attachment_indicator` if the icon is empty or the feature is disabled. Verify in a real chat that a photo, a video, a PDF and a `.zip` show `📷`, `🎬`, `📕` and `📦`.
+- [x] 3.2 Omit `🎤 ` from the duration suffix of voice notes when the feature is enabled. Verify that a voice note looks like `🎤 <file>.ogg 0:42` and, with `attachment_type_icons_enabled=0`, `📎 <file>.ogg 🎤 0:42`.
+- [x] 3.3 Replace the prefix-based detection of the attachment line (`rfind(attachmentIndicator, 0)`) with a `hasAttachmentLine` flag and `lineIndex == 0`, with a comment about the insertion order. Verify that all attachment lines use `history_text_attachment_color` and that a caption starting with `📷` uses the normal color.
 
-- [x] 3.4 Agregar `link_preview_indicator` (por defecto `🌐`) a `src/uiconfig.cpp` y `README.md`, y anteponerlo a la primera línea del preview de links en `src/uihistoryview.cpp`, achicando el ancho de esa línea según el ancho del icono. Verificar en un chat real un preview con título (`▏ 🌐 Título`), uno sin título y, con `link_preview_indicator=`, que el preview queda como antes.
+- [x] 3.4 Add `link_preview_indicator` (default `🌐`) to `src/uiconfig.cpp` and `README.md`, and prepend it to the first line of the link preview in `src/uihistoryview.cpp`, shrinking that line's width by the icon width. Verify in a real chat a preview with a title (`▏ 🌐 Title`), one without a title and, with `link_preview_indicator=`, that the preview looks as before.
 
-## 4. Verificación integral
+## 4. Full verification
 
-- [x] 4.1 Probar con la sesión real: adjunto no descargado (`+`), descargando (`⇄`) y fallido (`✗`) conservan el sufijo de estado; la miniatura inline sigue debajo de la línea de adjunto; abrir y guardar adjuntos sigue funcionando. Probar un icono personalizado (`attachment_indicator_pdf=[pdf]`) y uno vacío (`attachment_indicator_image=`).
+- [x] 4.1 Test with the real session: a non-downloaded attachment (`+`), downloading (`⇄`) and failed (`✗`) keep the status suffix; the inline thumbnail stays below the attachment line; opening and saving attachments still works. Test a custom icon (`attachment_indicator_pdf=[pdf]`) and an empty one (`attachment_indicator_image=`).

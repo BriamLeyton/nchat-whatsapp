@@ -1,97 +1,97 @@
 ## Context
 
-Así fluye hoy el estado de un mensaje (ver proposal.md para la motivación):
+This is how the status of a message flows today (see proposal.md for the motivation):
 
-- **Go (`gowm.go`):** `HandleReceipt` solo procesa `ReceiptTypeRead/ReadSelf` y `Played/PlayedSelf`, y llama `CWmNewMessageStatusNotify(connId, chatId, msgId, isRead)`. Ignora `ReceiptTypeDelivered` (`""`), y en grupos cualquier receipt de un participante marca el mensaje como leído.
-- **Mensajes nuevos:** llegan por `CWmNewMessagesNotify(..., isRead, isEdited)` desde ~10 handlers (texto, imagen, sticker, …). Cada handler recibe `isSyncRead`, que distingue history sync de mensajes en vivo. Los mensajes enviados desde nchat también pasan por esos handlers después de `client.SendMessage` (con `isSyncRead=false`).
-- **C++:** `ChatMessage.isRead` (bool) se guarda en `messages.isRead`. `UiModel` aplica `NewMessageStatusNotify` en memoria, y `MessageCache` lo persiste con `UPDATE ... SET isRead`.
-- **Historial:** `UiHistoryView::Draw` agrega `read_indicator` al encabezado de **cualquier** mensaje con `isRead`.
-- **Esquema:** la caché tiene migraciones secuenciales en `MessageCache` (hoy versión 12). La inserción de mensajes lee la fila previa para preservar reacciones.
-- **Colores:** `UiColorConfig` soporta nombres de color, `usercolor` y hex (`0xRRGGBB`, si la terminal permite redefinir colores). En Ghostty los hex funcionan.
+- **Go (`gowm.go`):** `HandleReceipt` only processes `ReceiptTypeRead/ReadSelf` and `Played/PlayedSelf`, and calls `CWmNewMessageStatusNotify(connId, chatId, msgId, isRead)`. It ignores `ReceiptTypeDelivered` (`""`), and in groups any receipt from a participant marks the message as read.
+- **New messages:** they arrive through `CWmNewMessagesNotify(..., isRead, isEdited)` from ~10 handlers (text, image, sticker, …). Each handler receives `isSyncRead`, which distinguishes history sync from live messages. Messages sent from nchat also pass through those handlers after `client.SendMessage` (with `isSyncRead=false`).
+- **C++:** `ChatMessage.isRead` (bool) is stored in `messages.isRead`. `UiModel` applies `NewMessageStatusNotify` in memory, and `MessageCache` persists it with `UPDATE ... SET isRead`.
+- **History:** `UiHistoryView::Draw` adds `read_indicator` to the header of **any** message with `isRead`.
+- **Schema:** the cache has sequential migrations in `MessageCache` (today version 12). Message insertion reads the previous row to preserve reactions.
+- **Colors:** `UiColorConfig` supports color names, `usercolor` and hex (`0xRRGGBB`, if the terminal allows redefining colors). In Ghostty hex works.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Que la agregación de receipts sea responsabilidad del protocolo (Go). C++ solo recibe un estado final por mensaje.
-- Que el estado sea monótono en todas las capas: nunca retrocede, ni con receipts tardíos, ni con re-inserciones, ni con el history sync.
-- Cambios aditivos en el esquema, sin reescribir datos existentes.
+- Receipt aggregation is the protocol's responsibility (Go). C++ only receives a final status per message.
+- The status is monotonic in every layer: it never goes back, not with late receipts, not with re-inserts, not with history sync.
+- Additive schema changes, without rewriting existing data.
 
 **Non-Goals:**
-- Reloj de "pendiente", info por participante, y estados para Telegram/Signal (su `isRead` se sigue mapeando a `read`).
+- A "pending" clock, per-participant info, and statuses for Telegram/Signal (their `isRead` still maps to `read`).
 
 ## Decisions
 
-### 1. Enum `DeliveryStatus` con "desconocido"
-En `protocol.h`:
+### 1. `DeliveryStatus` enum with "unknown"
+In `protocol.h`:
 
 ```cpp
 enum DeliveryStatus { DeliveryStatusUnknown = -1, DeliveryStatusNone = 0, DeliveryStatusSent = 1, DeliveryStatusDelivered = 2, DeliveryStatusRead = 3 };
 ```
 
-`ChatMessage.deliveryStatus` (por defecto `Unknown`) y `NewMessageStatusNotify.deliveryStatus` se agregan. `isRead` se mantiene: los mensajes recibidos siguen usándolo para la lógica de no leídos, y otros protocolos solo envían `isRead`.
+`ChatMessage.deliveryStatus` (default `Unknown`) and `NewMessageStatusNotify.deliveryStatus` are added. `isRead` is kept: received messages still use it for unread logic, and other protocols only send `isRead`.
 
-En la UI, el estado efectivo de un mensaje saliente se calcula así:
-- `Unknown` → `isRead ? Read : Delivered` (inferencia para mensajes previos, decidida con el usuario);
-- cualquier otro valor → ese valor.
+In the UI, the effective status of an outgoing message is computed like this:
+- `Unknown` → `isRead ? Read : Delivered` (inference for previous messages, decided with the user);
+- any other value → that value.
 
-*Alternativa descartada:* codificar el estado en `isRead` (0/1/2). Rompe la semántica booleana usada en el cálculo de no leídos y en otros protocolos.
+*Rejected alternative:* encoding the status in `isRead` (0/1/2). It breaks the boolean semantics used in the unread calculation and in other protocols.
 
-### 2. Agregación y persistencia de receipts en Go (`receipts.db`)
-Nuevo archivo SQLite `<profile>/receipts.db`, con el driver `mattn/go-sqlite3` que ya se usa. No se toca `session.db` de whatsmeow.
+### 2. Receipt aggregation and persistence in Go (`receipts.db`)
+New SQLite file `<profile>/receipts.db`, using the `mattn/go-sqlite3` driver already in use. whatsmeow's `session.db` is not touched.
 
-Tablas:
+Tables:
 - `msgstatus(chatId, msgId, status, recipients, timeUpdated, PRIMARY KEY(chatId,msgId))`
 - `participantreceipts(chatId, msgId, participant, status, PRIMARY KEY(chatId,msgId,participant))`
 
-Flujo en `HandleReceipt`:
-1. Se ignoran receipts de tipo `Sender`, `Retry`, `Inactive`, `PeerMsg`, `ServerError`, y receipts cuyo `Sender.User` es el propio usuario (otros dispositivos).
-2. Mapeo: `Delivered("")` → 2; `Read`/`Played` → 3. `ReadSelf`/`PlayedSelf` son lecturas propias de mensajes recibidos: se emiten como hoy (`isRead=1`, estado `Unknown`) y no afectan a los enviados.
-3. **Chat individual:** `status = max(actual, nuevo)`.
-4. **Grupo:**
-   - Se hace upsert en `participantreceipts` con `max`.
-   - `recipients` = número de participantes del grupo menos el propio usuario. Sale de `GetGroupInfo`, con caché en memoria por sesión, y se guarda en `msgstatus` la primera vez para que no cambie con altas o bajas posteriores.
-   - Estado agregado: `Read` si `count(status>=3) >= recipients`; si no, `Delivered` si `count(status>=2) >= recipients`; si no, `Sent`.
-5. Solo si el estado agregado sube, se llama `CWmNewMessageStatusNotify(connId, chatId, msgId, isRead, status)`.
+Flow in `HandleReceipt`:
+1. Receipts of type `Sender`, `Retry`, `Inactive`, `PeerMsg`, `ServerError`, and receipts whose `Sender.User` is the user itself (other devices) are ignored.
+2. Mapping: `Delivered("")` → 2; `Read`/`Played` → 3. `ReadSelf`/`PlayedSelf` are the user's own reads of received messages: they are emitted as today (`isRead=1`, status `Unknown`) and do not affect sent messages.
+3. **Individual chat:** `status = max(current, new)`.
+4. **Group:**
+   - Upsert into `participantreceipts` with `max`.
+   - `recipients` = number of group participants minus the user. It comes from `GetGroupInfo`, cached in memory per session, and is stored in `msgstatus` the first time so it does not change with later joins or leaves.
+   - Aggregated status: `Read` if `count(status>=3) >= recipients`; otherwise `Delivered` if `count(status>=2) >= recipients`; otherwise `Sent`.
+5. Only if the aggregated status goes up, `CWmNewMessageStatusNotify(connId, chatId, msgId, isRead, status)` is called.
 
-Además, al arrancar se borran las filas con `timeUpdated` de más de 60 días, para acotar el tamaño.
+Also, at startup, rows with `timeUpdated` older than 60 days are deleted to bound the size.
 
-*Alternativa descartada:* agregar en C++ (`MessageCache`). Mezclaría semántica específica de WhatsApp (participantes, dispositivos propios) con la capa genérica y obligaría a pasar los IDs de participantes por el puente C.
+*Rejected alternative:* aggregating in C++ (`MessageCache`). It would mix WhatsApp-specific semantics (participants, own devices) into the generic layer and force passing participant IDs across the C bridge.
 
-### 3. Estado inicial en mensajes nuevos
-`CWmNewMessagesNotify` agrega el parámetro `deliveryStatus`. En cada handler:
-- si `fromMe && !isSyncRead`: se toma el estado guardado en `receipts.db` (cubre la carrera de un receipt que llega antes del mensaje) o, si no hay, `Sent`;
-- en cualquier otro caso: `Unknown`.
+### 3. Initial status for new messages
+`CWmNewMessagesNotify` adds a `deliveryStatus` parameter. In each handler:
+- if `fromMe && !isSyncRead`: the status stored in `receipts.db` is used (covers the race where a receipt arrives before the message) or, if there is none, `Sent`;
+- in any other case: `Unknown`.
 
-Así los mensajes del history sync usan la inferencia, y los recibidos no tienen estado.
+So messages from history sync use the inference, and received messages have no status.
 
-### 4. Monotonía en C++ y migración de esquema
-- **Migración 12 → 13:** `ALTER TABLE messages ADD COLUMN deliveryStatus INT DEFAULT -1;`. Los mensajes existentes quedan en `Unknown`; es aditiva y no rompe `nchat-status`.
-- **Inserción:** al reinsertar un mensaje, por ejemplo al editarlo, se lee la fila previa (como ya se hace con las reacciones) y se guarda `max(previo, nuevo)`. `WmNewMessagesNotify`, en el camino de edición, ya preserva `isRead`; se preserva también `deliveryStatus`.
-- **Actualización:** `UPDATE messages SET deliveryStatus = MAX(COALESCE(deliveryStatus,-1), ?)`, más `isRead = 1` cuando el estado es `Read`, en el mismo request diferido que hoy actualiza `isRead`.
-- **`UiModel`:** al recibir `NewMessageStatusNotify` aplica `max` en memoria.
+### 4. C++ monotonicity and schema migration
+- **Migration 12 → 13:** `ALTER TABLE messages ADD COLUMN deliveryStatus INT DEFAULT -1;`. Existing messages stay `Unknown`; it is additive and does not break `nchat-status`.
+- **Insertion:** when a message is re-inserted, for example when edited, the previous row is read (as is already done for reactions) and `max(previous, new)` is stored. `WmNewMessagesNotify`, on the edit path, already preserves `isRead`; `deliveryStatus` is preserved too.
+- **Update:** `UPDATE messages SET deliveryStatus = MAX(COALESCE(deliveryStatus,-1), ?)`, plus `isRead = 1` when the status is `Read`, in the same deferred request that updates `isRead` today.
+- **`UiModel`:** on receiving `NewMessageStatusNotify` it applies `max` in memory.
 
-### 5. Representación en `UiHistoryView`
-El indicador se dibuja como un segmento aparte después de `wheader`, con su propio color (`history_receipt_*_color`) y el atributo de nombre (normal o seleccionado). Solo se dibuja si `msg.isOutgoing` y `timeSent != INT64_MAX` (no pendiente). El cálculo de ancho de `TrimPadWString` incluye el indicador, para no desbordar.
+### 5. Representation in `UiHistoryView`
+The indicator is drawn as a separate segment after `wheader`, with its own color (`history_receipt_*_color`) and the name attribute (normal or selected). It is only drawn if `msg.isOutgoing` and `timeSent != INT64_MAX` (not pending). The width calculation in `TrimPadWString` includes the indicator, so it does not overflow.
 
-`read_indicator` deja de usarse en el historial. Se conserva en `uiconfig` para no romper configuraciones, pero queda sin efecto.
+`read_indicator` is no longer used in the history. It is kept in `uiconfig` so existing configurations do not break, but it has no effect.
 
-### 6. Configuración
+### 6. Configuration
 - **`UiConfig`:** `receipt_sent_indicator=✓`, `receipt_delivered_indicator=✓✓`, `receipt_read_indicator=✓✓`.
 - **`UiColorConfig`:** `history_receipt_{sent,delivered,read}_color_{fg,bg}`.
-  - `fg` por defecto siempre en hex: `0x8696a0` / `0x8696a0` / `0x53bdeb` (`blue` con 8 colores), y `bg` vacío.
-  - No se elige el default según la terminal, porque se guarda en `color.conf` en el primer arranque y quedaría fijo.
-  - En cambio, `GetColorId` aproxima cualquier hex al color más cercano de la paleta xterm-256 cuando la terminal no puede redefinir colores (p. ej. tmux). Antes se descartaba con un warning.
+  - `fg` defaults are always hex: `0x8696a0` / `0x8696a0` / `0x53bdeb` (`blue` with 8 colors), and `bg` empty.
+  - The default is not chosen based on the terminal, because it is saved in `color.conf` on first start and would stay fixed.
+  - Instead, `GetColorId` approximates any hex to the nearest color in the xterm-256 palette when the terminal cannot redefine colors (e.g. tmux). Before, it was discarded with a warning.
 
 ## Risks / Trade-offs
 
-- [`GetGroupInfo` es una llamada de red por grupo] → Mitigación: se hace solo para receipts de mensajes propios en grupos, con caché en memoria por sesión y `recipients` guardado por mensaje. Si falla, se usa `recipients=1` (comportamiento similar al actual) y se registra un warning.
-- [Grupos grandes o comunidades: muchos receipts y filas] → Mitigación: upserts simples con índice por la clave primaria y poda a 60 días. En grupos con más de 256 participantes se agrega sin guardar por participante (solo conteos) para limitar filas.
-- [Divergencia con upstream por el esquema 13] → Mitigación: el cambio es aditivo. Si upstream usa la versión 13 para otra cosa, se renumera al hacer merge. Queda documentado aquí.
-- [Mensajes viejos no leídos que en realidad nunca se entregaron se verán como `✓✓`] → Trade-off aceptado por el usuario (inferencia).
-- [`ReceiptTypeDelivered` puede llegar varias veces (multi-dispositivo del destinatario)] → Mitigación: upsert idempotente por participante (usuario sin dispositivo, `Sender.ToNonAD()`).
+- [`GetGroupInfo` is a network call per group] → Mitigation: it is done only for receipts of own messages in groups, with an in-memory per-session cache and `recipients` stored per message. If it fails, `recipients=1` is used (behavior similar to today) and a warning is logged.
+- [Large groups or communities: many receipts and rows] → Mitigation: simple upserts with an index on the primary key and pruning at 60 days. In groups with more than 256 participants, aggregation is done without storing per participant (counts only) to limit rows.
+- [Divergence from upstream because of schema 13] → Mitigation: the change is additive. If upstream uses version 13 for something else, it is renumbered on merge. Documented here.
+- [Old unread messages that were never actually delivered will show as `✓✓`] → Trade-off accepted by the user (inference).
+- [`ReceiptTypeDelivered` can arrive several times (recipient's multi-device)] → Mitigation: idempotent upsert per participant (user without device, `Sender.ToNonAD()`).
 
 ## Migration Plan
 
-- Al primer arranque se aplica automáticamente la migración 12 → 13 y se crea `receipts.db`.
-- Respaldo existente: `~/.config/nchat.bak-20261014`. Conviene hacer un respaldo nuevo de `history/` antes del primer arranque con esta versión.
-- Rollback: un binario anterior ignora la columna nueva y `receipts.db`.
+- On first start the 12 → 13 migration is applied automatically and `receipts.db` is created.
+- Existing backup: `~/.config/nchat.bak-20261014`. It is advisable to make a new backup of `history/` before the first start with this version.
+- Rollback: an earlier binary ignores the new column and `receipts.db`.

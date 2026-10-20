@@ -1,50 +1,50 @@
 ## Purpose
 
-Abrir o crear un chat desde el diálogo de contactos escribiendo o pegando un número o un link de WhatsApp, con el texto del link listo para enviar.
+Open or create a chat from the contacts dialog by typing or pasting a WhatsApp number or link, with the link's text ready to send.
 
 ## ADDED Requirements
 
-### Requirement: Número o link en el filtro de contactos
-Cuando el filtro del diálogo de contactos contiene un link de WhatsApp (`wa.me`, `api.whatsapp.com/send`, `whatsapp://send`) o un número internacional de 8 a 15 dígitos, el diálogo SHALL mostrar como primera fila `Open chat with +<número>`. El número SHALL salir del path o del parámetro `phone`, sin caracteres que no sean dígitos.
+### Requirement: Number or link in the contacts filter
+When the filter of the contacts dialog contains a WhatsApp link (`wa.me`, `api.whatsapp.com/send`, `whatsapp://send`) or an international number of 8 to 15 digits, the dialog SHALL show as its first row `Open chat with +<number>`. The number SHALL come from the path or the `phone` parameter, without any non-digit characters.
 
-#### Scenario: Link de api.whatsapp.com
-- **WHEN** el usuario pega `https://api.whatsapp.com/send/?phone=15551234567&text=Hello+ACME.&type=phone_number&app_absent=0` en Alt-n
-- **THEN** la primera fila es `Open chat with +15551234567`
+#### Scenario: api.whatsapp.com link
+- **WHEN** the user pastes `https://api.whatsapp.com/send/?phone=15551234567&text=Hello+ACME.&type=phone_number&app_absent=0` in Alt-n
+- **THEN** the first row is `Open chat with +15551234567`
 
-#### Scenario: Número escrito con formato
-- **WHEN** el usuario escribe `+1 555 123 4567`
-- **THEN** la primera fila es `Open chat with +15551234567`
+#### Scenario: Number typed with formatting
+- **WHEN** the user types `+1 555 123 4567`
+- **THEN** the first row is `Open chat with +15551234567`
 
-#### Scenario: Texto normal
-- **WHEN** el usuario escribe un nombre
-- **THEN** no aparece la fila y la lista filtra contactos como antes
+#### Scenario: Normal text
+- **WHEN** the user types a name
+- **THEN** no row appears and the list filters contacts as before
 
-### Requirement: Abrir o crear el chat
-Al elegir la fila, si existe un chat con ese número SHALL abrirse (desarchivándolo si estaba archivado) sin consultar a WhatsApp. Si no existe, nchat SHALL consultar una sola vez si el número está registrado; si lo está, SHALL crear y abrir el chat con el número que devuelve WhatsApp (`<número>@s.whatsapp.net`), nunca con su LID, para que los mensajes enviados y recibidos queden en ese mismo chat. Si no está registrado SHALL mostrar "+<número> is not on WhatsApp.". Sin conexión SHALL mostrar "Not connected, please try again later." y MUST NOT consultar. La consulta MUST NOT hacerse mientras el usuario escribe en el filtro.
+### Requirement: Open or create the chat
+When the row is chosen, if a chat with that number exists it SHALL be opened (unarchiving it if it was archived) without querying WhatsApp. If it does not exist, nchat SHALL query once whether the number is registered; if it is, SHALL create and open the chat with the number WhatsApp returns (`<number>@s.whatsapp.net`), never with its LID, so that sent and received messages end up in that same chat. If it is not registered it SHALL show "+<number> is not on WhatsApp.". Without a connection it SHALL show "Not connected, please try again later." and MUST NOT query. The query MUST NOT be made while the user types in the filter.
 
-#### Scenario: Chat existente
-- **WHEN** el usuario elige la fila de un número con chat
-- **THEN** se abre ese chat y no se envía ninguna consulta
+#### Scenario: Existing chat
+- **WHEN** the user chooses the row of a number that has a chat
+- **THEN** that chat is opened and no query is sent
 
-#### Scenario: Número nuevo registrado
-- **WHEN** el usuario elige la fila de un número sin chat que está en WhatsApp
-- **THEN** se crea el chat y queda abierto
+#### Scenario: New registered number
+- **WHEN** the user chooses the row of a number with no chat that is on WhatsApp
+- **THEN** the chat is created and left open
 
-#### Scenario: Primer mensaje a un número nuevo
-- **WHEN** el usuario crea el chat de un número nuevo y envía un mensaje
-- **THEN** el mensaje aparece en ese chat, que sube al inicio de su sección y sigue seleccionado, sin crear un segundo chat
+#### Scenario: First message to a new number
+- **WHEN** the user creates the chat of a new number and sends a message
+- **THEN** the message appears in that chat, which moves to the top of its section and stays selected, without creating a second chat
 
-#### Scenario: Número no registrado
-- **WHEN** el número no está en WhatsApp
-- **THEN** aparece "+<número> is not on WhatsApp." y no se crea ningún chat
+#### Scenario: Unregistered number
+- **WHEN** the number is not on WhatsApp
+- **THEN** "+<number> is not on WhatsApp." appears and no chat is created
 
-### Requirement: Texto del link en la caja de mensaje
-Si el link tiene `text`, al abrir el chat el texto decodificado SHALL quedar en la caja de mensaje con el cursor al final, sin enviarse. Si el chat ya tenía un borrador, el borrador SHALL mantenerse y SHALL aparecer "Draft kept, link text not inserted.".
+### Requirement: Link text in the message box
+If the link has `text`, when the chat is opened the decoded text SHALL be placed in the message box with the cursor at the end, without being sent. If the chat already had a draft, the draft SHALL be kept and "Draft kept, link text not inserted." SHALL appear.
 
-#### Scenario: Texto con acentos
-- **WHEN** el link tiene `text=Hello+ACME.+I+want+more+information`
-- **THEN** la caja de mensaje muestra `Hola ACME. Quiero más información` y nada se envía
+#### Scenario: Text with accents
+- **WHEN** the link has `text=Hello+ACME.+Quiero+m%C3%A1s+informaci%C3%B3n`
+- **THEN** the message box shows `Hello ACME. Quiero más información` and nothing is sent
 
-#### Scenario: Borrador existente
-- **WHEN** el chat ya tiene texto escrito en la caja
-- **THEN** el texto escrito no cambia y aparece el aviso
+#### Scenario: Existing draft
+- **WHEN** the chat already has text typed in the box
+- **THEN** the typed text does not change and the notice appears

@@ -1,22 +1,22 @@
-## 1. Go y protocolo
+## 1. Go and protocol
 
-- [x] 1.1 `protocol.h`, `wmchat.{h,cpp}`, `cgowm.go`: `UpdateLockedNotify{chatId, isLocked}`, `CheckSecretCodeRequest{code}` y `CheckSecretCodeNotify{result}`.
-- [x] 1.2 `gowm.go`: `lock` y `setting_chatLock` en `events.AppState` (LID con `GetChatId`); `chat_lock` atómico con 0600.
-- [x] 1.3 Descarga completa de `regular_low` una vez (marca `locked_synced`), en goroutine tras conectarse.
-- [x] 1.4 `WmCheckSecretCode`: PBKDF2 según `transformer`/`transformerArg`, comparación en tiempo constante; sin código en el log.
+- [x] 1.1 `protocol.h`, `wmchat.{h,cpp}`, `cgowm.go`: `UpdateLockedNotify{chatId, isLocked}`, `CheckSecretCodeRequest{code}` and `CheckSecretCodeNotify{result}`.
+- [x] 1.2 `gowm.go`: `lock` and `setting_chatLock` in `events.AppState` (LID with `GetChatId`); atomic `chat_lock` with 0600.
+- [x] 1.3 Full download of `regular_low` once (marks `locked_synced`), in a goroutine after connecting.
+- [x] 1.4 `WmCheckSecretCode`: PBKDF2 according to `transformer`/`transformerArg`, constant-time comparison; no code in the log.
 
 ## 2. UI
 
-- [x] 2.1 `m_LockedChats` cargado y guardado en `<profile>/locked_chats`; `m_LockedVisible`; `IsChatHidden`.
-- [x] 2.2 Ocultar en lista, Tab, no leídos, `goto_chat`, Alt-n y open-by-link ("This chat is locked."); cambiar de chat si el actual queda oculto.
-- [x] 2.3 Sin notificaciones ni no leídos para restringidos; respuesta a estado sin cambio de chat si el autor está oculto.
-- [x] 2.4 Alt-l (`toggle_locked`): diálogo de código enmascarado, resultado por notify, avisos; sección `▾ LOCKED` en `UiListView`.
+- [x] 2.1 `m_LockedChats` loaded and saved in `<profile>/locked_chats`; `m_LockedVisible`; `IsChatHidden`.
+- [x] 2.2 Hiding in the list, Tab, unread, `goto_chat`, Alt-n and open-by-link ("This chat is locked."); switch chat if the current one becomes hidden.
+- [x] 2.3 No notifications or unread for locked chats; status reply without chat switch if the author is hidden.
+- [x] 2.4 Alt-l (`toggle_locked`): masked code dialog, result by notify, notices; `▾ LOCKED` section in `UiListView`.
 
-## 3. Documentación
+## 3. Documentation
 
-- [x] 3.1 `uikeyconfig.cpp`, ayuda y README: `toggle_locked`, `locked_chats`, `chat_lock`.
+- [x] 3.1 `uikeyconfig.cpp`, help and README: `toggle_locked`, `locked_chats`, `chat_lock`.
 
-## 4. Verificación
+## 4. Verification
 
-- [x] 4.1 Sandbox sin red: `locked_chats` de prueba oculta los chats en lista, Tab, `goto_chat` y Alt-n; mensaje entrante sin notificación; Alt-l con `chat_lock` de prueba (código conocido) muestra y oculta; código incorrecto y sin código.
-- [ ] 4.2 En vivo en Ghostty: la descarga completa encuentra los 13 restringidos (log con el conteo); Alt-l con el código real; restringir y quitar en el teléfono se refleja en nchat.
+- [x] 4.1 Sandbox without network: test `locked_chats` hides chats in the list, Tab, `goto_chat` and Alt-n; incoming message without notification; Alt-l with a test `chat_lock` (known code) shows and hides; incorrect code and no code.
+- [ ] 4.2 Live in Ghostty: the full download finds the 13 locked chats (log with the count); Alt-l with the real code; locking and unlocking on the phone is reflected in nchat.

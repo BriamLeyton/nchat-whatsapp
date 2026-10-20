@@ -1,19 +1,19 @@
-## 1. Modelo
+## 1. Model
 
-- [x] 1.1 Agregar `m_HistoryViewOffset` con `GetHistoryViewOffsetLocked`/`SetHistoryViewOffsetLocked`. Inicializarlo con `messageOffset` al activar la selección. En `OnKeyPrevPage`, con la selección activa, partir de `viewOffset`.
+- [x] 1.1 Add `m_HistoryViewOffset` with `GetHistoryViewOffsetLocked`/`SetHistoryViewOffsetLocked`. Initialize it with `messageOffset` when the selection is activated. In `OnKeyPrevPage`, with the selection active, start from `viewOffset`.
 
-## 2. Vista
+## 2. View
 
-- [x] 2.1 En `UiHistoryView::Draw`: anclar en `viewOffset` con la selección activa (o en `messageOffset` sin ella), resaltar por índice, registrar si el seleccionado se dibujó completo, ajustar `view` (`sel < view` → `view = sel`; no visible → `view+1` y redibujar) y guardar la vista. Colocar imágenes solo desde el dibujo final.
+- [x] 2.1 In `UiHistoryView::Draw`: anchor at `viewOffset` with the selection active (or at `messageOffset` without it), highlight by index, record whether the selected message was drawn in full, adjust `view` (`sel < view` → `view = sel`; not visible → `view+1` and redraw) and save the view. Place images only from the final draw.
 
-## 3. Verificación
+## 3. Verification
 
-- [x] 3.1 Sandbox offline:
-  - [x] `↑` desde la entrada no mueve el historial;
-  - [x] `↑` repetido sube la selección sin mover nada hasta el borde superior;
-  - [x] pasado el borde, desplaza un mensaje;
-  - [x] `↓` vuelve hasta el borde inferior y desplaza;
-  - [x] `↓` desde el último sale y muestra el final;
-  - [x] `PgUp`/`PgDn` igual que antes;
-  - [x] mensaje más alto que la vista recortado con `[...]`.
-- [x] 3.2 En vivo en Ghostty: selección con imágenes inline, saltar al citado, reaccionar y editar sobre el mensaje seleccionado.
+- [x] 3.1 Offline sandbox:
+  - [x] `↑` from the input does not move the history;
+  - [x] repeated `↑` moves the selection up without moving anything until the top edge;
+  - [x] past the edge, scrolls one message;
+  - [x] `↓` goes back to the bottom edge and scrolls;
+  - [x] `↓` from the last message exits and shows the end;
+  - [x] `PgUp`/`PgDn` the same as before;
+  - [x] message taller than the view truncated with `[...]`.
+- [x] 3.2 Live in Ghostty: selection with inline images, jump to quoted, react and edit on the selected message.

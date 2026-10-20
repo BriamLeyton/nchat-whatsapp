@@ -1,50 +1,50 @@
 ## Purpose
 
-Mostrar qué estados son nuevos y quitar esa marca al recorrerlos con el cursor, sin marcarlos como vistos, y mostrar la misma marca en la fila Status.
+Show which statuses are new and remove that mark when they are browsed with the cursor, without marking them as seen, and show the same mark on the Status row.
 
 ## ADDED Requirements
 
-### Requirement: Marca de estado nuevo
-Un estado entrante sin abrir, recibido después de la línea base y no revisado SHALL mostrarse con `status_new_indicator` (default `●`) antes del nombre del contacto. Los estados abiertos, revisados o propios MUST NOT llevar la marca.
+### Requirement: New status mark
+An incoming status that has not been opened, was received after the baseline and has not been reviewed SHALL be shown with `status_new_indicator` (default `●`) before the contact's name. Opened, reviewed or own statuses MUST NOT carry the mark.
 
-#### Scenario: Estado nuevo
-- **WHEN** llega un estado de un contacto y el usuario entra a Status
-- **THEN** la línea del estado muestra `●` antes del nombre
+#### Scenario: New status
+- **WHEN** a contact's status arrives and the user enters Status
+- **THEN** the status line shows `●` before the name
 
-#### Scenario: Estado abierto
-- **WHEN** el usuario abre un estado con `open` u `open_msg`
-- **THEN** la línea del estado no muestra `●`
+#### Scenario: Opened status
+- **WHEN** the user opens a status with `open` or `open_msg`
+- **THEN** the status line does not show `●`
 
-### Requirement: Revisar al seleccionar
-Seleccionar un estado con el cursor SHALL quitarle la marca. Seleccionar MUST NOT marcarlo como visto ni enviar aviso de visto.
+### Requirement: Review on selection
+Selecting a status with the cursor SHALL remove its mark. Selecting MUST NOT mark it as seen or send a read receipt.
 
-#### Scenario: Recorrer con el cursor
-- **WHEN** el cursor de selección pasa por un estado nuevo
-- **THEN** el estado pierde la marca
-- **AND** sigue sin ver hasta abrirlo con `open` u `open_msg`
+#### Scenario: Browse with the cursor
+- **WHEN** the selection cursor passes over a new status
+- **THEN** the status loses the mark
+- **AND** it remains unseen until it is opened with `open` or `open_msg`
 
-#### Scenario: Estado no recorrido
-- **WHEN** un estado nuevo se muestra en pantalla pero no se selecciona
-- **THEN** conserva la marca
+#### Scenario: Status not browsed
+- **WHEN** a new status is shown on screen but not selected
+- **THEN** it keeps the mark
 
-### Requirement: Marca en la fila Status
-La fila Status de la lista SHALL mostrar `status_new_indicator` en lugar de `unread_indicator`, si y solo si hay al menos un estado nuevo entre los cargados.
+### Requirement: Mark on the Status row
+The Status row in the list SHALL show `status_new_indicator` instead of `unread_indicator`, if and only if there is at least one new status among the loaded ones.
 
-#### Scenario: Todos revisados
-- **WHEN** el usuario selecciona todos los estados nuevos
-- **THEN** la marca de la fila Status desaparece
+#### Scenario: All reviewed
+- **WHEN** the user selects all the new statuses
+- **THEN** the mark on the Status row disappears
 
-#### Scenario: Llega uno nuevo
-- **WHEN** llega un estado nuevo con Status fuera de pantalla
-- **THEN** la fila Status muestra `●`, sin notificación
+#### Scenario: A new one arrives
+- **WHEN** a new status arrives with Status off screen
+- **THEN** the Status row shows `●`, without a notification
 
-### Requirement: Revisados persistentes
-Los estados revisados SHALL guardarse en `<profile>/status_seen`. Sin ese archivo, los estados existentes al primer arranque MUST contar como revisados.
+### Requirement: Persistent reviewed statuses
+Reviewed statuses SHALL be stored in `<profile>/status_seen`. Without that file, statuses existing at the first start MUST count as reviewed.
 
-#### Scenario: Reinicio
-- **WHEN** el usuario revisó estados, cierra nchat y lo vuelve a abrir
-- **THEN** esos estados no muestran la marca
+#### Scenario: Restart
+- **WHEN** the user reviewed statuses, closes nchat and reopens it
+- **THEN** those statuses do not show the mark
 
-#### Scenario: Primer arranque
-- **WHEN** nchat arranca sin `status_seen`
-- **THEN** ningún estado existente muestra la marca
+#### Scenario: First start
+- **WHEN** nchat starts without `status_seen`
+- **THEN** no existing status shows the mark

@@ -1,31 +1,31 @@
 ## Why
 
-Hoy nchat muestra las imágenes de WhatsApp solo como una línea de adjunto (`📎 3EB0C4….jpg`). Para verlas hay que abrirlas en un programa externo. Ghostty implementa el protocolo gráfico de kitty, así que la terminal ya puede dibujar la imagen dentro del historial. Ver fotos y stickers en contexto acerca nchat a la experiencia de WhatsApp sin salir de la terminal.
+Today nchat shows WhatsApp images only as an attachment line (`📎 3EB0C4….jpg`). To see them you have to open them in an external program. Ghostty implements the kitty graphics protocol, so the terminal can already draw the image inside the history. Seeing photos and stickers in context brings nchat closer to the WhatsApp experience without leaving the terminal.
 
 ## What Changes
 
-- Los adjuntos de imagen (fotos y stickers: JPEG, PNG, WebP, GIF estático) se renderizan como miniatura inline en el historial, debajo de la línea `📎` del mensaje.
-- La miniatura ocupa como máximo `inline_image_max_height` filas (por defecto 10). Mantiene la proporción y no supera el ancho del panel.
-- La línea `📎 nombre-archivo` se sigue mostrando siempre, encima de la imagen. Así se puede seguir seleccionando y abriendo el adjunto como hoy.
-- Fallback: si la terminal no soporta el protocolo gráfico de kitty, si la imagen no se puede decodificar o si la función está desactivada, se muestra solo la línea `📎` (comportamiento actual, sin filas reservadas).
-- Las imágenes visibles en el historial se descargan automáticamente aunque `attachment_prefetch` esté en `1` (solo seleccionado). Los demás tipos de adjunto siguen respetando `attachment_prefetch`.
-- Las imágenes se ocultan mientras hay un diálogo abierto encima del historial y se vuelven a dibujar al cerrarlo, al hacer scroll, al cambiar de chat y al redimensionar.
-- Nuevas opciones en `ui.conf`: `inline_images_enabled` (por defecto `1`) e `inline_image_max_height` (por defecto `10`).
+- Image attachments (photos and stickers: JPEG, PNG, WebP, static GIF) are rendered as an inline thumbnail in the history, below the message's `📎` line.
+- The thumbnail takes at most `inline_image_max_height` rows (default 10). It keeps its aspect ratio and does not exceed the panel width.
+- The `📎 file-name` line is always still shown, above the image. That way the attachment can still be selected and opened as today.
+- Fallback: if the terminal does not support the kitty graphics protocol, if the image cannot be decoded, or if the feature is disabled, only the `📎` line is shown (current behavior, no reserved rows).
+- Images visible in the history are downloaded automatically even when `attachment_prefetch` is `1` (selected only). Other attachment types still respect `attachment_prefetch`.
+- Images are hidden while a dialog is open on top of the history, and drawn again when it closes, on scroll, on chat change and on resize.
+- New options in `ui.conf`: `inline_images_enabled` (default `1`) and `inline_image_max_height` (default `10`).
 
-Fuera de alcance: URLs http(s) a imágenes dentro del texto, animación de GIF/stickers animados, video, soporte para Sixel o iTerm2, y passthrough de tmux.
+Out of scope: http(s) image URLs inside text, GIF/animated sticker animation, video, Sixel or iTerm2 support, and tmux passthrough.
 
 ## Capabilities
 
 ### New Capabilities
-- `inline-image-preview`: renderizado inline de adjuntos de imagen en el historial con el protocolo gráfico de kitty, detección de soporte de la terminal, auto-descarga de imágenes visibles, configuración y fallback a la línea de adjunto.
+- `inline-image-preview`: inline rendering of image attachments in the history with the kitty graphics protocol, terminal support detection, automatic download of visible images, configuration and fallback to the attachment line.
 
 ### Modified Capabilities
-<!-- No hay specs existentes en openspec/specs/. -->
+<!-- No existing specs in openspec/specs/. -->
 
 ## Impact
 
-- **Código UI:** `src/uihistoryview.cpp/.h` (reserva de filas y registro de posiciones), `src/uiview.cpp`, `src/uidialog.cpp` y `src/uilistdialog.cpp` (ocultar y redibujar alrededor de diálogos), `src/uiconfig.cpp` (opciones nuevas) y `src/ui.cpp` (detección al inicio y limpieza al salir).
-- **Código nuevo:** un módulo `src/uiimage.cpp/.h` para la detección de la terminal, la decodificación, el escalado, la caché de IDs y la emisión de secuencias kitty.
-- **Dependencias:** `stb_image` y `stb_image_resize2` (header-only, dominio público/MIT) vendorizados en `ext/`. `libwebp` del sistema para stickers WebP. Hay que actualizar `CMakeLists.txt`.
-- **Protocolo y base de datos:** sin cambios en `wmchat`, en el esquema SQLite ni en la sesión de WhatsApp.
-- **Rendimiento:** cada imagen se decodifica y transmite una sola vez por sesión y archivo; los redibujados solo reposicionan.
+- **UI code:** `src/uihistoryview.cpp/.h` (row reservation and position recording), `src/uiview.cpp`, `src/uidialog.cpp` and `src/uilistdialog.cpp` (hiding and redrawing around dialogs), `src/uiconfig.cpp` (new options) and `src/ui.cpp` (detection at startup and cleanup on exit).
+- **New code:** a module `src/uiimage.cpp/.h` for terminal detection, decoding, scaling, the ID cache and emitting kitty sequences.
+- **Dependencies:** `stb_image` and `stb_image_resize2` (header-only, public domain/MIT) vendored in `ext/`. System `libwebp` for WebP stickers. `CMakeLists.txt` must be updated.
+- **Protocol and database:** no changes to `wmchat`, the SQLite schema or the WhatsApp session.
+- **Performance:** each image is decoded and transmitted only once per session and file; redraws only reposition.

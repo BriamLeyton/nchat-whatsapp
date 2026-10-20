@@ -1,51 +1,51 @@
 ## Why
 
-En WhatsApp, cada chat tiene arriba una cabecera con la foto, el nombre y la presencia del contacto. Además, un anillo alrededor de la foto avisa si el contacto tiene estados, y tocarlo los abre.
+In WhatsApp, every chat has a header at the top with the contact's photo, name and presence. Also, a ring around the photo signals whether the contact has statuses, and tapping it opens them.
 
-En nchat la barra inferior solo muestra nombre y presencia en una línea. No hay foto, y para ver los estados de un contacto hay que ir a Status, filtrar con Alt-u y volver a mano.
+In nchat the bottom bar only shows the name and presence on one line. There is no photo, and to see a contact's statuses you have to go to Status, filter with Alt-u and go back manually.
 
 ## What Changes
 
-- **Banner de 3 filas en la parte superior del historial**, en chats de contactos y en grupos:
-  - foto de perfil inline, en terminales con imágenes (Ghostty, kitty). Sin soporte de imágenes, el banner se muestra solo con texto;
-  - contacto: `nombre · número`, presencia (escribiendo, en línea, última vez) y estados, una fila cada uno;
-  - grupo: nombre y número de participantes;
-  - sin línea separadora: el banner se distingue con su propio color, `history_banner_color`.
-- **Estados del contacto** en la tercera fila del banner, solo en contactos, contando los de las últimas 24 h:
-  - `● 3 new status updates · Alt-u` si hay estados sin revisar (con la marca `●` de `status-seen-indicator`);
-  - `◯ 5 status updates · Alt-u` si ya los revisaste todos;
-  - fila vacía si no tiene estados de las últimas 24 h.
-- **Colores de presencia** en la fila de presencia, configurables:
-  - escribiendo: verde;
-  - en línea: verde;
-  - ausente (`away`): amarillo;
-  - última vez (`seen ...`): gris;
-  - si el chat está silenciado, ` · muted` en gris al final.
-- **Ctrl-v (`open`) sin mensaje seleccionado** abre la foto de perfil del chat con `attachment_open_command`, como las demás fotos.
-  - Se abre la foto en tamaño completo. Se pide a WhatsApp solo al abrirla, y se guarda en `<profile>/avatars/<chatId>.full.jpg`.
-  - Si la foto cambió (cambia el id de la preview), la copia completa se borra y se vuelve a pedir la próxima vez.
-  - Sin foto, aparece "No profile photo.".
-  - Con un mensaje seleccionado, Ctrl-v sigue abriendo su adjunto como hoy.
-- **Alt-u en el chat de un contacto** pasa a Status filtrado por ese contacto. Alt-u otra vez lo cierra y vuelve al chat del contacto. Dentro del filtro todo funciona como hoy: seleccionar quita la marca, `open` marca visto, y se puede responder.
-- **Foto de perfil**:
-  - se pide a WhatsApp al abrir el chat, en tamaño reducido (preview), como la app;
-  - se guarda en `<profile>/avatars/`, y se vuelve a consultar como máximo una vez cada 24 h por chat, enviando el id de la foto guardada para no descargarla si no cambió;
-  - si el contacto oculta su foto o no tiene, se recuerda y no se pregunta de nuevo hasta las 24 h.
-- `chat_banner_enabled=1` en `ui.conf` para poder desactivarlo.
-- Status no tiene banner: su fila de lista y el filtro ya lo identifican.
+- **3-row banner at the top of the history**, in contact chats and in groups:
+  - inline profile photo, in terminals with image support (Ghostty, kitty). Without image support, the banner is shown as text only;
+  - contact: `name · number`, presence (typing, online, last seen) and statuses, one row each;
+  - group: name and number of participants;
+  - no separator line: the banner is distinguished by its own color, `history_banner_color`.
+- **Contact statuses** on the third row of the banner, only for contacts, counting those from the last 24 h:
+  - `● 3 new status updates · Alt-u` if there are unreviewed statuses (with the `●` mark from `status-seen-indicator`);
+  - `◯ 5 status updates · Alt-u` if you have already reviewed all of them;
+  - empty row if the contact has no statuses from the last 24 h.
+- **Presence colors** in the presence row, configurable:
+  - typing: green;
+  - online: green;
+  - away (`away`): yellow;
+  - last seen (`seen ...`): gray;
+  - if the chat is muted, ` · muted` in gray at the end.
+- **Ctrl-v (`open`) without a selected message** opens the chat's profile photo with `attachment_open_command`, like other photos.
+  - The photo is opened at full size. It is requested from WhatsApp only when opened, and stored in `<profile>/avatars/<chatId>.full.jpg`.
+  - If the photo changed (the preview id changed), the full copy is deleted and requested again the next time.
+  - Without a photo, "No profile photo." is shown.
+  - With a selected message, Ctrl-v still opens its attachment as it does today.
+- **Alt-u in a contact's chat** switches to Status filtered by that contact. Alt-u again closes it and returns to the contact's chat. Inside the filter everything works as today: selecting clears the mark, `open` marks it as seen, and you can reply.
+- **Profile photo**:
+  - requested from WhatsApp when the chat is opened, at reduced size (preview), like the app does;
+  - stored in `<profile>/avatars/`, and queried again at most once every 24 h per chat, sending the stored photo id so it is not downloaded if unchanged;
+  - if the contact hides their photo or has none, this is remembered and not asked again for 24 h.
+- `chat_banner_enabled=1` in `ui.conf` so it can be disabled.
+- Status has no banner: its list row and the filter already identify it.
 
 ## Capabilities
 
 ### New Capabilities
-- `chat-banner`: cabecera del chat con foto, nombre, número o participantes, presencia y estados del contacto, y acceso a sus estados con Alt-u.
+- `chat-banner`: chat header with photo, name, number or participants, presence and the contact's statuses, and access to their statuses with Alt-u.
 
 ### Modified Capabilities
-<!-- No hay specs existentes en openspec/specs/. -->
+<!-- No existing specs in openspec/specs/. -->
 
 ## Impact
 
-- `lib/common/src/protocol.h`: `GetAvatarRequest` (preview o completa) y `NewAvatarNotify`.
-- `lib/wmchat/go/gowm.go`, `cgowm.go` y `lib/wmchat/src/wmchat.cpp`: `WmGetAvatar` con `GetProfilePictureInfo` (preview y `ExistingID`), descarga a `avatars/` y aviso a la UI.
-- `src/uimodel.{h,cpp}`: pedir la foto al abrir un chat, presencia por tipo, conteo de estados por contacto, Alt-u en chats de contacto y regreso, Ctrl-v sin selección para abrir la foto.
-- `src/uihistoryview.cpp`: dibujar el banner y la foto en las primeras filas del historial.
-- `src/uiconfig.cpp`, `src/uicolorconfig.cpp`, `src/uihelpdialog.cpp` y `README.md`: `chat_banner_enabled`, `history_banner_color` y colores de presencia, Ctrl-v sin selección, Alt-u en chats.
+- `lib/common/src/protocol.h`: `GetAvatarRequest` (preview or full) and `NewAvatarNotify`.
+- `lib/wmchat/go/gowm.go`, `cgowm.go` and `lib/wmchat/src/wmchat.cpp`: `WmGetAvatar` with `GetProfilePictureInfo` (preview and `ExistingID`), download to `avatars/` and notification to the UI.
+- `src/uimodel.{h,cpp}`: request the photo when opening a chat, presence by type, status count per contact, Alt-u in contact chats and return, Ctrl-v without selection to open the photo.
+- `src/uihistoryview.cpp`: draw the banner and the photo in the first rows of the history.
+- `src/uiconfig.cpp`, `src/uicolorconfig.cpp`, `src/uihelpdialog.cpp` and `README.md`: `chat_banner_enabled`, `history_banner_color` and presence colors, Ctrl-v without selection, Alt-u in chats.

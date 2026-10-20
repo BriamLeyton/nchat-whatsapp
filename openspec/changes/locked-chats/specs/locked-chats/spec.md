@@ -1,42 +1,42 @@
 ## Purpose
 
-Ocultar los chats restringidos de WhatsApp (Chat Lock) en nchat, sin notificaciones, y mostrarlos solo con el código secreto, como en WhatsApp Web.
+Hide WhatsApp's locked chats (Chat Lock) in nchat, without notifications, and show them only with the secret code, as in WhatsApp Web.
 
 ## ADDED Requirements
 
-### Requirement: Sincronización de chats restringidos
-nchat SHALL procesar las acciones `lock` y `setting_chatLock` del app state y persistir los chats restringidos y el hash del código secreto en el perfil. Una sola vez por perfil SHALL descargar el estado completo de `regular_low` para conocer el estado actual. MUST NOT repetir esa descarga después de completarla.
+### Requirement: Locked chat synchronization
+nchat SHALL process the `lock` and `setting_chatLock` actions of the app state and persist the locked chats and the secret code hash in the profile. Once per profile it SHALL download the full state of `regular_low` to learn the current state. It MUST NOT repeat that download after completing it.
 
-#### Scenario: Primera conexión con la función
-- **WHEN** nchat se conecta y el perfil no tiene la marca de descarga
-- **THEN** descarga el estado completo de `regular_low`, guarda los chats restringidos y crea la marca
+#### Scenario: First connection with the feature
+- **WHEN** nchat connects and the profile does not have the download mark
+- **THEN** it downloads the full state of `regular_low`, stores the locked chats and creates the mark
 
-#### Scenario: Cambio en el teléfono
-- **WHEN** el usuario restringe o quita la restricción de un chat en el teléfono
-- **THEN** nchat lo oculta o lo muestra sin reiniciar
+#### Scenario: Change on the phone
+- **WHEN** the user locks or unlocks a chat on the phone
+- **THEN** nchat hides or shows it without restarting
 
-### Requirement: Chats restringidos ocultos
-Mientras los restringidos están ocultos, nchat MUST NOT mostrarlos en la lista, en la navegación con Tab, en el salto a no leídos, en `goto_chat` ni en Alt-n. Sus mensajes MUST NOT generar notificación de escritorio, campana ni conteo de no leídos, estén ocultos o visibles. Un número o link de un chat restringido oculto SHALL mostrar "This chat is locked.".
+### Requirement: Locked chats hidden
+While locked chats are hidden, nchat MUST NOT show them in the list, in Tab navigation, in the jump to unread, in `goto_chat` or in Alt-n. Their messages MUST NOT generate a desktop notification, a bell or an unread count, whether hidden or visible. A number or link of a hidden locked chat SHALL show "This chat is locked.".
 
-#### Scenario: Mensaje en chat restringido
-- **WHEN** llega un mensaje a un chat restringido
-- **THEN** se guarda, pero no aparece en la lista ni notifica
+#### Scenario: Message in a locked chat
+- **WHEN** a message arrives in a locked chat
+- **THEN** it is stored, but does not appear in the list and does not notify
 
-#### Scenario: Link a chat restringido
-- **WHEN** el usuario pega en Alt-n el link de un chat restringido oculto
-- **THEN** aparece "This chat is locked." y no se abre el chat
+#### Scenario: Link to a locked chat
+- **WHEN** the user pastes in Alt-n the link of a hidden locked chat
+- **THEN** "This chat is locked." appears and the chat is not opened
 
-### Requirement: Mostrar con el código secreto
-Alt-l (`toggle_locked`) con los restringidos ocultos SHALL pedir el código secreto con entrada enmascarada y compararlo localmente con el hash de WhatsApp. El código MUST NOT enviarse, guardarse ni registrarse en el log. Con código correcto SHALL mostrar la sección `▾ LOCKED` al final de la lista hasta que el usuario pulse Alt-l de nuevo o cierre nchat. Con código incorrecto SHALL mostrar "Wrong secret code.". Sin código configurado SHALL mostrar "Set a secret code for locked chats in WhatsApp on your phone.".
+### Requirement: Show with the secret code
+Alt-l (`toggle_locked`) with locked chats hidden SHALL ask for the secret code with masked input and compare it locally with WhatsApp's hash. The code MUST NOT be sent, stored or logged. With the correct code it SHALL show the `▾ LOCKED` section at the end of the list until the user presses Alt-l again or closes nchat. With an incorrect code it SHALL show "Wrong secret code.". With no code configured it SHALL show "Set a secret code for locked chats in WhatsApp on your phone.".
 
-#### Scenario: Código correcto
-- **WHEN** el usuario pulsa Alt-l y escribe su código secreto de WhatsApp
-- **THEN** aparece `▾ LOCKED` con los chats restringidos
+#### Scenario: Correct code
+- **WHEN** the user presses Alt-l and types their WhatsApp secret code
+- **THEN** `▾ LOCKED` appears with the locked chats
 
-#### Scenario: Ocultar de nuevo
-- **WHEN** la sección está visible y el usuario pulsa Alt-l
-- **THEN** la sección desaparece y, si el chat abierto era restringido, se abre el primer chat de la lista
+#### Scenario: Hide again
+- **WHEN** the section is visible and the user presses Alt-l
+- **THEN** the section disappears and, if the open chat was locked, the first chat in the list is opened
 
-#### Scenario: Reinicio
-- **WHEN** el usuario cierra y abre nchat
-- **THEN** los chats restringidos están ocultos
+#### Scenario: Restart
+- **WHEN** the user closes and reopens nchat
+- **THEN** the locked chats are hidden

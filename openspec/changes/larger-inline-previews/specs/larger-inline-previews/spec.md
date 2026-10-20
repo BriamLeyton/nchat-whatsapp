@@ -1,23 +1,23 @@
 ## Purpose
 
-Mostrar las miniaturas de imágenes y videos no descargados del mismo tamaño que las imágenes descargadas, y agrandar un poco todas las vistas previas inline.
+Show thumbnails of images and videos not yet downloaded at the same size as downloaded images, and enlarge all inline previews a bit.
 
 ## ADDED Requirements
 
-### Requirement: Miniaturas al tamaño de imagen
-La miniatura incluida en el mensaje SHALL agrandarse, manteniendo la proporción, hasta llenar el mismo recuadro que una imagen descargada (ancho del historial × `inline_image_max_height` filas). Las imágenes descargadas MUST NOT agrandarse.
+### Requirement: Thumbnails at image size
+The thumbnail included in the message SHALL be enlarged, keeping its proportion, until it fills the same box as a downloaded image (history width × `inline_image_max_height` rows). Downloaded images MUST NOT be enlarged.
 
-#### Scenario: Video vertical no descargado
-- **WHEN** se muestra un video no descargado con una miniatura de 90×160
-- **THEN** la miniatura ocupa la misma altura que una imagen vertical descargada
+#### Scenario: Vertical video not downloaded
+- **WHEN** a video not downloaded is shown with a 90×160 thumbnail
+- **THEN** the thumbnail takes the same height as a downloaded vertical image
 
-#### Scenario: Sticker descargado
-- **WHEN** se muestra una imagen descargada más chica que el recuadro
-- **THEN** se ve en su tamaño real, sin agrandar
+#### Scenario: Downloaded sticker
+- **WHEN** a downloaded image smaller than the box is shown
+- **THEN** it is shown at its real size, without enlarging
 
-### Requirement: Tamaños por defecto mayores
-El default de `inline_image_max_height` SHALL ser 12, y la miniatura de una vista previa de link SHALL usar el mismo máximo `inline_image_max_height`.
+### Requirement: Larger default sizes
+The default of `inline_image_max_height` SHALL be 12, and the thumbnail of a link preview SHALL use the same `inline_image_max_height` maximum.
 
-#### Scenario: Config nueva
-- **WHEN** nchat arranca sin `ui.conf`
+#### Scenario: New config
+- **WHEN** nchat starts without `ui.conf`
 - **THEN** `inline_image_max_height=12`

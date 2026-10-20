@@ -1,43 +1,43 @@
 ## Why
 
-En el teléfono hay 13 chats restringidos ("Chats restringidos", Chat Lock). WhatsApp los oculta de la lista principal y no muestra sus notificaciones. En WhatsApp Web y Desktop solo aparecen después de escribir el código secreto.
+On the phone there are 13 locked chats ("Locked chats", Chat Lock). WhatsApp hides them from the main list and does not show their notifications. In WhatsApp Web and Desktop they only appear after entering the secret code.
 
-nchat los muestra como chats normales, con vista previa y notificaciones. whatsmeow recibe la acción `lock` del app state (`LockChatAction{locked}`), pero no la procesa, y nchat la descarta en `events.AppState`.
+nchat shows them as normal chats, with preview and notifications. whatsmeow receives the `lock` action from the app state (`LockChatAction{locked}`), but does not process it, and nchat discards it in `events.AppState`.
 
-Revisión sin red (MAC de índices de la sesión local): en `regular_low` hay 62 chats con una entrada `lock` (restringidos ahora o alguna vez) y el ajuste `setting_chatLock` con el código secreto. La sesión guarda solo los MAC, no los valores, así que hace falta descargar una vez el estado completo de `regular_low` para saber cuáles son los 13.
+Review without network (MACs of the session's local indexes): `regular_low` has 62 chats with a `lock` entry (locked now or at some point) and the `setting_chatLock` setting with the secret code. The session only stores the MACs, not the values, so the full state of `regular_low` must be downloaded once to find out which are the 13.
 
 ## What Changes
 
-- **Sincronización del estado restringido**:
-  - nchat procesa las acciones `lock` (`LockChatAction.locked`) y `setting_chatLock` (`ChatLockSettings`: `hideLockedChats` y `secretCode`) del app state, al llegar y en adelante;
-  - una sola vez por perfil, al conectarse, descarga el estado completo de `regular_low` (`FetchAppState(regular_low, fullSync)`), como hace la app al recuperar la sincronización. Queda marcado en el perfil y no se repite;
-  - los chats restringidos se guardan en `<profile>/locked_chats`, y el código secreto (solo su hash PBKDF2, sal e iteraciones, como lo envía WhatsApp) en `<profile>/chat_lock`. Así se conocen sin conexión.
-- **Chats restringidos ocultos, como en WhatsApp Web**:
-  - no aparecen en la lista de chats, ni en Tab/Shift-Tab, ni al saltar a no leídos, ni en Ctrl-f (`goto_chat`);
-  - no aparecen en Alt-n. Un número o link de un chat restringido muestra "This chat is locked." en vez de abrirlo;
-  - sus mensajes se reciben y se guardan como siempre, pero no generan notificación de escritorio, ni campana, ni cuentan como no leídos;
-  - responder a un estado de un contacto con chat restringido envía la respuesta, pero no cambia al chat: se queda en Status con "Reply sent to X.".
-- **Alt-l (`toggle_locked`) muestra u oculta los restringidos**:
-  - si están ocultos, pide el código secreto en un diálogo con la entrada enmascarada (`*`). El código se compara localmente con el hash de WhatsApp y nunca se envía ni se guarda;
-  - código correcto: aparece al final de la lista una sección `▾ LOCKED` con los chats restringidos, que se usan como cualquier chat;
-  - código incorrecto: "Wrong secret code.";
-  - si no hay código configurado en el teléfono: "Set a secret code for locked chats in WhatsApp on your phone." (WhatsApp Web tampoco los muestra sin código);
-  - Alt-l con la sección visible la oculta. Al cerrar nchat vuelven a quedar ocultos;
-  - si el chat abierto queda oculto, se cambia al primer chat de la lista.
-- Restringir o quitar la restricción en el teléfono se aplica en nchat al momento. Desde nchat no se puede restringir ni quitar la restricción.
+- **Locked state synchronization**:
+  - nchat processes the `lock` (`LockChatAction.locked`) and `setting_chatLock` (`ChatLockSettings`: `hideLockedChats` and `secretCode`) actions from the app state, when they arrive and afterwards;
+  - once per profile, on connect, the full state of `regular_low` is downloaded (`FetchAppState(regular_low, fullSync)`), as the app does when recovering sync. It is marked in the profile and is not repeated;
+  - locked chats are stored in `<profile>/locked_chats`, and the secret code (only its PBKDF2 hash, salt and iterations, as WhatsApp sends it) in `<profile>/chat_lock`. This way they are known without a connection.
+- **Locked chats hidden, as in WhatsApp Web**:
+  - they do not appear in the chat list, in Tab/Shift-Tab, when jumping to unread, or in Ctrl-f (`goto_chat`);
+  - they do not appear in Alt-n. A number or link of a locked chat shows "This chat is locked." instead of opening it;
+  - their messages are received and stored as usual, but do not generate a desktop notification, a bell, or count as unread;
+  - replying to a status of a contact with a locked chat sends the reply, but does not switch to the chat: it stays in Status with "Reply sent to X.".
+- **Alt-l (`toggle_locked`) shows or hides locked chats**:
+  - if they are hidden, it asks for the secret code in a dialog with masked input (`*`). The code is compared locally with WhatsApp's hash and is never sent or stored;
+  - correct code: a `▾ LOCKED` section appears at the end of the list with the locked chats, which are used like any other chat;
+  - incorrect code: "Wrong secret code.";
+  - if no code is configured on the phone: "Set a secret code for locked chats in WhatsApp on your phone." (WhatsApp Web does not show them without a code either);
+  - Alt-l with the section visible hides it. When nchat is closed they are hidden again;
+  - if the open chat becomes hidden, the first chat in the list is selected.
+- Locking or unlocking on the phone is applied in nchat immediately. Locking or unlocking cannot be done from nchat.
 
 ## Capabilities
 
 ### New Capabilities
-- `locked-chats`: chats restringidos ocultos y sin notificaciones, visibles con el código secreto de WhatsApp en Alt-l.
+- `locked-chats`: locked chats hidden and without notifications, visible with the WhatsApp secret code in Alt-l.
 
 ### Modified Capabilities
-<!-- No hay specs existentes en openspec/specs/. -->
+<!-- No existing specs in openspec/specs/. -->
 
 ## Impact
 
-- `lib/wmchat/go/gowm.go`, `cgowm.go`: procesar `lock` y `setting_chatLock` en `events.AppState`; descarga completa de `regular_low` una vez; comprobar el código (PBKDF2) en Go.
+- `lib/wmchat/go/gowm.go`, `cgowm.go`: process `lock` and `setting_chatLock` in `events.AppState`; full download of `regular_low` once; check the code (PBKDF2) in Go.
 - `lib/common/src/protocol.h`, `lib/wmchat/src/wmchat.{h,cpp}`: `UpdateLockedNotify`, `CheckSecretCodeRequest`/`CheckSecretCodeNotify`.
-- `src/uimodel.{h,cpp}`: conjunto de chats restringidos persistido, filtro en lista, navegación, no leídos y notificaciones, Alt-l y diálogo de código, casos de Alt-n y respuesta a estados.
-- `src/uilistview.cpp`: sección `▾ LOCKED`.
+- `src/uimodel.{h,cpp}`: persisted set of locked chats, filter in list, navigation, unread and notifications, Alt-l and the code dialog, Alt-n cases and reply to statuses.
+- `src/uilistview.cpp`: `▾ LOCKED` section.
 - `src/uikeyconfig.cpp`, `src/uihelpdialog.cpp`, `README.md`: `toggle_locked` (Alt-l).

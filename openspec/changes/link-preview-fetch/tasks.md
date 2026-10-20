@@ -1,19 +1,19 @@
-## 1. Implementación
+## 1. Implementation
 
-- [x] 1.1 Configs `link_preview_fetch`, `link_preview_command` y `link_thumbnail_command`.
-- [x] 1.2 `MediaInfo`: hilo y cola de links, mapa de URL por sesión, `RequestLinkPreview`, y `linkFetched` en `MediaMeta`.
-- [x] 1.3 Parseo de HTML: etiquetas meta, `<title>`, entidades, espacios y límites de largo; resolución de URL de imagen relativa.
-- [x] 1.4 Escritura de `.meta` y miniatura, resultados aplicados en el hilo de la UI con redibujo.
-- [x] 1.5 `UiHistoryView::Draw`: extraer el primer URL y pedir la consulta en la pasada final.
-- [x] 1.6 README con aviso de privacidad y niveles de `link_preview_fetch`.
-- [x] 1.7 Go: escribir `<profile>/saved_contacts` en `GetContacts`; `MediaInfo::IsSavedContact` con recarga por `mtime`.
-- [x] 1.8 Filtro por origen en `UiHistoryView::Draw` según el nivel (propio, contacto guardado, grupo, otro).
+- [x] 1.1 Configs `link_preview_fetch`, `link_preview_command` and `link_thumbnail_command`.
+- [x] 1.2 `MediaInfo`: link thread and queue, per-session URL map, `RequestLinkPreview`, and `linkFetched` in `MediaMeta`.
+- [x] 1.3 HTML parsing: meta tags, `<title>`, entities, whitespace and length limits; resolution of relative image URLs.
+- [x] 1.4 Writing `.meta` and the thumbnail, results applied on the UI thread with a redraw.
+- [x] 1.5 `UiHistoryView::Draw`: extract the first URL and request the query in the final pass.
+- [x] 1.6 README with privacy notice and `link_preview_fetch` levels.
+- [x] 1.7 Go: write `<profile>/saved_contacts` in `GetContacts`; `MediaInfo::IsSavedContact` with reload by `mtime`.
+- [x] 1.8 Origin filter in `UiHistoryView::Draw` according to the level (own, saved contact, group, other).
 
-## 2. Verificación
+## 2. Verification
 
-- [x] 2.1 Prueba unitaria del parseo con HTML de ejemplo (Open Graph, Twitter, `<title>`, entidades, atributos en otro orden).
-- [x] 2.2 Programa de prueba aislado, con red y sin lanzar nchat (no se puede abrir la sesión de WhatsApp dos veces): el pipeline de `MediaInfo` con un link de Facebook y uno de YouTube produce `.meta` y `.thumb.jpg`.
-- [x] 2.3 Sandbox sin red, con esos `.meta` ya generados: se ve la vista previa, y al reiniciar no se piden consultas (log).
-- [x] 2.4 Con `link_preview_fetch=0` no hay consultas, y una página sin metadatos no se reintenta.
-- [x] 2.6 Sandbox sin red: con niveles 1, 2 y 3, el log muestra pedidos solo para los orígenes permitidos.
-- [ ] 2.5 En vivo en Ghostty: links viejos y enviados muestran la vista previa con miniatura inline.
+- [x] 2.1 Unit test of the parsing with sample HTML (Open Graph, Twitter, `<title>`, entities, attributes in another order).
+- [x] 2.2 Isolated test program, with network and without launching nchat (the WhatsApp session cannot be opened twice): the `MediaInfo` pipeline with a Facebook link and a YouTube link produces `.meta` and `.thumb.jpg`.
+- [x] 2.3 Sandbox without network, with those `.meta` files already generated: the preview is shown, and on restart no queries are made (log).
+- [x] 2.4 With `link_preview_fetch=0` there are no queries, and a page without metadata is not retried.
+- [x] 2.6 Sandbox without network: with levels 1, 2 and 3, the log shows requests only for the allowed origins.
+- [ ] 2.5 Live in Ghostty: old and sent links show the preview with an inline thumbnail.

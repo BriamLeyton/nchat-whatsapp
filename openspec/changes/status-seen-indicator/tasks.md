@@ -1,17 +1,17 @@
-## 1. Implementación
+## 1. Implementation
 
-- [x] 1.1 Revisados por perfil: lectura perezosa de `<profile>/status_seen`, línea base al primer arranque, poda a 30 días, escritura atómica.
-- [x] 1.2 `IsStatusNew` y `MarkStatusSeen` (sin tocar `isRead` ni enviar nada), con sus variantes `Locked` en `UiModel`.
-- [x] 1.3 `UpdateChatInfoIsUnread`: para Status, no leído si hay algún estado nuevo.
-- [x] 1.4 `UiHistoryView`: `status_new_indicator` antes del nombre en estados nuevos; `MarkStatusSeenLocked` para el estado seleccionado con `p_Final`.
-- [x] 1.5 `UiListView`: la fila Status usa `status_new_indicator` en lugar de `unread_indicator`.
-- [x] 1.6 `status_new_indicator=●` en `uiconfig.cpp` y README, con el significado de la marca en los estados y en la fila Status.
+- [x] 1.1 Reviewed per profile: lazy reading of `<profile>/status_seen`, baseline on first start, pruning at 30 days, atomic write.
+- [x] 1.2 `IsStatusNew` and `MarkStatusSeen` (without touching `isRead` or sending anything), with their `Locked` variants in `UiModel`.
+- [x] 1.3 `UpdateChatInfoIsUnread`: for Status, unread if there is any new status.
+- [x] 1.4 `UiHistoryView`: `status_new_indicator` before the name on new statuses; `MarkStatusSeenLocked` for the selected status with `p_Final`.
+- [x] 1.5 `UiListView`: the Status row uses `status_new_indicator` instead of `unread_indicator`.
+- [x] 1.6 `status_new_indicator=●` in `uiconfig.cpp` and README, with the meaning of the mark on statuses and on the Status row.
 
-## 2. Verificación
+## 2. Verification
 
-- [x] 2.1 Sandbox sin red:
-  - sin `status_seen`, ningún estado sale marcado;
-  - con la línea base movida atrás, los estados posteriores salen con `●` y la fila Status también;
-  - recorrer con el cursor quita `●` y, al final, el de la fila Status, sin enviar visto (log);
-  - reiniciar conserva los revisados.
-- [x] 2.2 En vivo en Ghostty: un estado nuevo sale con `●` en el estado y en la fila Status, y recorrerlo los quita.
+- [x] 2.1 Offline sandbox without network:
+  - without `status_seen`, no status is shown marked;
+  - with the baseline moved back, later statuses show `●` and so does the Status row;
+  - browsing with the cursor removes `●` and, at the end, the one on the Status row, without sending a read receipt (log);
+  - restarting keeps the reviewed ones.
+- [x] 2.2 Live in Ghostty: a new status shows `●` on the status and on the Status row, and browsing it removes them.

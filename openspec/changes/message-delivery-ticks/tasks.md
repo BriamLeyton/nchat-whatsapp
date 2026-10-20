@@ -1,22 +1,22 @@
-## 1. Protocolo común y caché
+## 1. Common protocol and cache
 
-- [x] 1.1 Agregar el enum `DeliveryStatus` y el campo `deliveryStatus` a `ChatMessage` y `NewMessageStatusNotify` en `lib/common/src/protocol.h`. Verificar que todo compila (`make -j$(nproc)`).
-- [x] 1.2 Agregar la migración de esquema 12 → 13 en `MessageCache` (`deliveryStatus INT DEFAULT -1`). Verificar sobre una **copia** de `db.sqlite` que `pragma table_info(messages)` muestra la columna, que `version.schema=13`, que el conteo de filas no cambió y que `nchat-status` funciona contra la copia.
-- [x] 1.3 Leer y escribir `deliveryStatus` en los INSERT y SELECT de mensajes, preservando `max(previo, nuevo)` al reinsertar. Agregar la actualización monótona (`MAX(COALESCE(...))`) en el request diferido de estado. Verificar con un test en `tests/` o un harness sobre la copia: insertar en `Read` y reinsertar en `Sent` deja `Read`.
+- [x] 1.1 Add the `DeliveryStatus` enum and the `deliveryStatus` field to `ChatMessage` and `NewMessageStatusNotify` in `lib/common/src/protocol.h`. Verify everything compiles (`make -j$(nproc)`).
+- [x] 1.2 Add the 12 → 13 schema migration in `MessageCache` (`deliveryStatus INT DEFAULT -1`). Verify on a **copy** of `db.sqlite` that `pragma table_info(messages)` shows the column, that `version.schema=13`, that the row count did not change, and that `nchat-status` works against the copy.
+- [x] 1.3 Read and write `deliveryStatus` in the message INSERT and SELECT statements, preserving `max(previous, new)` on re-insert. Add the monotonic update (`MAX(COALESCE(...))`) in the deferred status request. Verify with a test in `tests/` or a harness on the copy: insert as `Read` and re-insert as `Sent` leaves `Read`.
 
-## 2. Go: receipts y agregación
+## 2. Go: receipts and aggregation
 
-- [x] 2.1 Crear `receipts.db` (tablas `msgstatus` y `participantreceipts`, poda a 60 días) al cargar el perfil en `gowm.go`. Verificar que el archivo existe en el perfil tras arrancar y que el log no tiene errores.
-- [x] 2.2 Reescribir `HandleReceipt`: mapear `Delivered/Read/Played`, ignorar tipos no relevantes y dispositivos propios, emitir `ReadSelf/PlayedSelf` como hoy, agregar en grupos con `recipients` (con caché de `GetGroupInfo`) y emitir solo cuando el estado sube. Verificar con logs `-ee` que enviar un mensaje a un chat individual produce `sent → delivered → read`.
-- [x] 2.3 Agregar `deliveryStatus` a `CWmNewMessagesNotify`, `CWmNewMessageStatusNotify` y al puente C (`wmchat.h/.cpp`), y actualizar los ~10 call sites (`fromMe && !isSyncRead` → estado guardado o `Sent`; si no, `Unknown`). Verificar que compila y que un mensaje enviado desde nchat se guarda con `deliveryStatus>=1` (consulta a `db.sqlite`).
+- [x] 2.1 Create `receipts.db` (tables `msgstatus` and `participantreceipts`, pruning at 60 days) when loading the profile in `gowm.go`. Verify the file exists in the profile after startup and the log has no errors.
+- [x] 2.2 Rewrite `HandleReceipt`: map `Delivered/Read/Played`, ignore irrelevant types and own devices, emit `ReadSelf/PlayedSelf` as today, aggregate in groups with `recipients` (with `GetGroupInfo` cache), and emit only when the status goes up. Verify with `-ee` logs that sending a message to an individual chat produces `sent → delivered → read`.
+- [x] 2.3 Add `deliveryStatus` to `CWmNewMessagesNotify`, `CWmNewMessageStatusNotify` and the C bridge (`wmchat.h/.cpp`), and update the ~10 call sites (`fromMe && !isSyncRead` → stored status or `Sent`; otherwise `Unknown`). Verify it compiles and that a message sent from nchat is stored with `deliveryStatus>=1` (query on `db.sqlite`).
 
 ## 3. UI
 
-- [x] 3.1 En `UiModel`, al recibir `NewMessageStatusNotify`, aplicar `max` al `deliveryStatus` en memoria (y `isRead` solo si el estado es `Read` o el notify trae `isRead`). Verificar que el encabezado se actualiza en vivo sin reabrir el chat.
-- [x] 3.2 Agregar los defaults de `receipt_*_indicator` en `uiconfig.cpp` y de `history_receipt_*_color` en `uicolorconfig.cpp` (hex si `can_change_color()`, si no `gray/blue`). Verificar con `diff` contra el respaldo que `ui.conf` y `color.conf` solo ganan las claves nuevas.
-- [x] 3.3 En `UiHistoryView::Draw`: quitar `read_indicator` del encabezado; dibujar el segmento de estado solo en mensajes salientes no pendientes, con el color de su estado y la inferencia para `Unknown`, sin desbordar el ancho. Verificar en Ghostty: recibidos sin `✓`, enviados viejos `✓✓` gris o azul, y que un mensaje nuevo pasa por `✓` → `✓✓` gris → `✓✓` azul.
+- [x] 3.1 In `UiModel`, on receiving `NewMessageStatusNotify`, apply `max` to `deliveryStatus` in memory (and `isRead` only if the status is `Read` or the notify carries `isRead`). Verify the header updates live without reopening the chat.
+- [x] 3.2 Add the defaults of `receipt_*_indicator` in `uiconfig.cpp` and of `history_receipt_*_color` in `uicolorconfig.cpp` (hex if `can_change_color()`, otherwise `gray/blue`). Verify with `diff` against the backup that `ui.conf` and `color.conf` only gain the new keys.
+- [x] 3.3 In `UiHistoryView::Draw`: remove `read_indicator` from the header; draw the status segment only on outgoing non-pending messages, with the color of their status and the inference for `Unknown`, without overflowing the width. Verify in Ghostty: received messages without `✓`, old sent messages `✓✓` gray or blue, and that a new message goes `✓` → gray `✓✓` → blue `✓✓`.
 
-## 4. Verificación integral
+## 4. Full verification
 
-- [x] 4.1 Grupo: enviar a un grupo pequeño y verificar que queda en `✓✓` gris hasta que **todos** leen, que luego pasa a azul, y que si se reinicia nchat entre medio el estado agregado se conserva.
-- [x] 4.2 Regresión: el conteo de no leídos de la lista de chats no cambia, editar un mensaje propio no resetea sus checks, y `nchat-status` sigue funcionando.
+- [x] 4.1 Group: send to a small group and verify it stays gray `✓✓` until **all** read, then turns blue, and that if nchat is restarted in between the aggregated status is preserved.
+- [x] 4.2 Regression: the unread count in the chat list does not change, editing an own message does not reset its checks, and `nchat-status` still works.

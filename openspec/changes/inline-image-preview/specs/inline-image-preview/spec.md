@@ -1,106 +1,106 @@
 ## Purpose
 
-Mostrar los adjuntos de imagen de WhatsApp como miniaturas dentro del historial de chat en terminales compatibles con el protocolo gráfico de kitty (p. ej. Ghostty), manteniendo la línea de adjunto como fallback.
+Show WhatsApp image attachments as thumbnails inside the chat history in terminals that support the kitty graphics protocol (e.g. Ghostty), keeping the attachment line as the fallback.
 
 ## ADDED Requirements
 
-### Requirement: Renderizado inline de adjuntos de imagen
-El sistema SHALL renderizar como miniatura inline, en el historial, todo adjunto de mensaje cuyo archivo sea una imagen soportada (JPEG, PNG, WebP o el primer frame de un GIF) cuando la función está activa y la terminal la soporta. La miniatura MUST aparecer inmediatamente debajo de la línea de adjunto del mismo mensaje y encima del texto (caption) del mensaje.
+### Requirement: Inline rendering of image attachments
+The system SHALL render as an inline thumbnail in the history every message attachment whose file is a supported image (JPEG, PNG, WebP, or the first frame of a GIF) when the feature is enabled and the terminal supports it. The thumbnail MUST appear immediately below the attachment line of the same message and above the message's text (caption).
 
-#### Scenario: Foto recibida y descargada
-- **WHEN** el chat actual contiene un mensaje con una foto JPEG ya descargada y el mensaje está dentro del área visible del historial
-- **THEN** el historial muestra la línea `📎 <archivo>.jpg`, debajo la miniatura de la foto y debajo el caption si existe
+#### Scenario: Received and downloaded photo
+- **WHEN** the current chat contains a message with a downloaded JPEG photo and the message is within the visible area of the history
+- **THEN** the history shows the line `📎 <file>.jpg`, below it the photo thumbnail, and below that the caption if one exists
 
-#### Scenario: Sticker WebP
-- **WHEN** el chat actual contiene un sticker `.webp` descargado y visible
-- **THEN** el historial muestra el sticker como miniatura inline, conservando la transparencia sobre el fondo del panel
+#### Scenario: WebP sticker
+- **WHEN** the current chat contains a downloaded and visible `.webp` sticker
+- **THEN** the history shows the sticker as an inline thumbnail, keeping its transparency over the panel background
 
-#### Scenario: Adjunto que no es imagen
-- **WHEN** el mensaje tiene un adjunto PDF, audio o video
-- **THEN** el historial muestra solo la línea de adjunto, igual que antes de este cambio
+#### Scenario: Attachment that is not an image
+- **WHEN** the message has a PDF, audio or video attachment
+- **THEN** the history shows only the attachment line, as before this change
 
-### Requirement: Tamaño de la miniatura
-La miniatura SHALL ocupar como máximo `inline_image_max_height` filas de terminal (por defecto 10) y como máximo el ancho del panel de historial. MUST conservar la relación de aspecto de la imagen original y MUST NOT ampliar imágenes más pequeñas que ese máximo.
+### Requirement: Thumbnail size
+The thumbnail SHALL take at most `inline_image_max_height` terminal rows (default 10) and at most the width of the history panel. It MUST keep the aspect ratio of the original image and MUST NOT enlarge images smaller than that maximum.
 
-#### Scenario: Foto vertical grande
-- **WHEN** se muestra una foto de 3000×4000 píxeles con `inline_image_max_height=10`
-- **THEN** la miniatura ocupa exactamente 10 filas y el ancho proporcional en columnas
+#### Scenario: Large vertical photo
+- **WHEN** a 3000×4000 pixel photo is shown with `inline_image_max_height=10`
+- **THEN** the thumbnail takes exactly 10 rows and the proportional width in columns
 
-#### Scenario: Foto panorámica en panel angosto
-- **WHEN** se muestra una foto de 4000×1000 píxeles y el ancho proporcional a 10 filas supera el ancho del panel
-- **THEN** la miniatura se limita al ancho del panel y reduce sus filas para mantener la proporción
+#### Scenario: Panoramic photo in a narrow panel
+- **WHEN** a 4000×1000 pixel photo is shown and the proportional width for 10 rows exceeds the panel width
+- **THEN** the thumbnail is limited to the panel width and reduces its rows to keep the proportion
 
-#### Scenario: Imagen pequeña
-- **WHEN** se muestra una imagen cuyo tamaño natural cabe en menos filas que el máximo
-- **THEN** la miniatura se dibuja a su tamaño natural sin ampliarla
+#### Scenario: Small image
+- **WHEN** an image whose natural size fits in fewer rows than the maximum is shown
+- **THEN** the thumbnail is drawn at its natural size without enlarging it
 
-### Requirement: Fallback a la línea de adjunto
-Cuando no sea posible renderizar la imagen, el sistema SHALL mostrar solo la línea de adjunto (`📎 <archivo>` más el indicador de estado), sin reservar filas vacías. MUST aplicarse cuando la terminal no soporta el protocolo gráfico de kitty, cuando `inline_images_enabled=0`, cuando el archivo no se puede leer o decodificar, y mientras la imagen no está descargada.
+### Requirement: Fallback to the attachment line
+When the image cannot be rendered, the system SHALL show only the attachment line (`📎 <file>` plus the status indicator), without reserving empty rows. This MUST apply when the terminal does not support the kitty graphics protocol, when `inline_images_enabled=0`, when the file cannot be read or decoded, and while the image is not downloaded.
 
-#### Scenario: Terminal sin soporte gráfico
-- **WHEN** nchat corre en una terminal que no responde a la consulta del protocolo gráfico de kitty
-- **THEN** todos los adjuntos de imagen se muestran solo como línea `📎`, igual que antes de este cambio
+#### Scenario: Terminal without graphics support
+- **WHEN** nchat runs in a terminal that does not answer the kitty graphics protocol query
+- **THEN** all image attachments are shown only as a `📎` line, as before this change
 
-#### Scenario: Función desactivada
-- **WHEN** `ui.conf` contiene `inline_images_enabled=0`
-- **THEN** no se emite ninguna secuencia gráfica y los adjuntos se muestran solo como línea `📎`
+#### Scenario: Feature disabled
+- **WHEN** `ui.conf` contains `inline_images_enabled=0`
+- **THEN** no graphics sequence is emitted and attachments are shown only as a `📎` line
 
-#### Scenario: Archivo corrupto
-- **WHEN** el archivo descargado de una imagen no se puede decodificar
-- **THEN** se muestra solo la línea `📎` y el error se registra en el log sin interrumpir la UI
+#### Scenario: Corrupt file
+- **WHEN** the downloaded file of an image cannot be decoded
+- **THEN** only the `📎` line is shown and the error is logged without interrupting the UI
 
-#### Scenario: Imagen aún descargándose
-- **WHEN** la imagen está en estado descargando
-- **THEN** se muestra la línea `📎 <archivo> ⇄` y, cuando la descarga termina, el historial se redibuja con la miniatura
+#### Scenario: Image still downloading
+- **WHEN** the image is in the downloading state
+- **THEN** the line `📎 <file> ⇄` is shown and, when the download finishes, the history is redrawn with the thumbnail
 
-### Requirement: Auto-descarga de imágenes visibles
-El sistema SHALL iniciar automáticamente la descarga de todo adjunto de imagen descargable que aparezca en el área visible del historial cuando la función está activa y la terminal la soporta, sin importar el valor de `attachment_prefetch`. Los adjuntos que no son imagen MUST seguir respetando `attachment_prefetch`.
+### Requirement: Automatic download of visible images
+The system SHALL automatically start downloading every downloadable image attachment that appears in the visible area of the history when the feature is enabled and the terminal supports it, regardless of the value of `attachment_prefetch`. Non-image attachments MUST keep respecting `attachment_prefetch`.
 
-#### Scenario: Prefetch solo seleccionado
-- **WHEN** `attachment_prefetch=1` y el usuario abre un chat con tres fotos no descargadas visibles
-- **THEN** las tres fotos empiezan a descargarse y se muestran como miniaturas al terminar
+#### Scenario: Prefetch only selected
+- **WHEN** `attachment_prefetch=1` and the user opens a chat with three visible photos not yet downloaded
+- **THEN** the three photos start downloading and are shown as thumbnails when finished
 
-#### Scenario: Documento no seleccionado
-- **WHEN** `attachment_prefetch=1` y hay un PDF visible que no está seleccionado
-- **THEN** el PDF no se descarga
+#### Scenario: Unselected document
+- **WHEN** `attachment_prefetch=1` and there is a visible PDF that is not selected
+- **THEN** the PDF is not downloaded
 
-### Requirement: Coherencia visual con la UI de texto
-Las miniaturas SHALL dibujarse solo dentro del área del panel de historial y MUST NOT tapar otros paneles ni diálogos. Al hacer scroll, cambiar de chat, redimensionar la terminal o cerrar un diálogo, las miniaturas MUST quedar en la posición del mensaje correspondiente, sin restos de dibujos anteriores. Una miniatura que solo cabe parcialmente en el borde superior del panel MUST recortarse a la parte visible.
+### Requirement: Visual consistency with the text UI
+Thumbnails SHALL be drawn only inside the history panel area and MUST NOT cover other panels or dialogs. When scrolling, changing chat, resizing the terminal or closing a dialog, thumbnails MUST be in the position of their corresponding message, with no leftovers from earlier drawings. A thumbnail that only partially fits at the top edge of the panel MUST be clipped to its visible part.
 
-#### Scenario: Abrir un diálogo
-- **WHEN** hay miniaturas visibles y el usuario abre un diálogo (p. ej. lista de emojis o de contactos) que se superpone al historial
-- **THEN** las miniaturas desaparecen mientras el diálogo está abierto y reaparecen en su lugar al cerrarlo
+#### Scenario: Open a dialog
+- **WHEN** thumbnails are visible and the user opens a dialog (e.g. the emoji or contact list) that overlaps the history
+- **THEN** the thumbnails disappear while the dialog is open and reappear in their place when it closes
 
-#### Scenario: Scroll en el historial
-- **WHEN** el usuario sube una página en el historial
-- **THEN** las miniaturas de los mensajes que salen de la vista desaparecen y las de los mensajes que entran se dibujan en su nueva posición
+#### Scenario: Scroll in the history
+- **WHEN** the user scrolls up one page in the history
+- **THEN** the thumbnails of messages leaving the view disappear and those of messages entering it are drawn in their new position
 
-#### Scenario: Cambio de chat
-- **WHEN** el usuario cambia a otro chat
-- **THEN** no queda ninguna miniatura del chat anterior en pantalla
+#### Scenario: Chat change
+- **WHEN** the user switches to another chat
+- **THEN** no thumbnail from the previous chat remains on screen
 
-#### Scenario: Imagen recortada en el borde superior
-- **WHEN** la parte superior de una miniatura quedaría por encima del panel de historial
-- **THEN** solo se dibujan las filas de la miniatura que caen dentro del panel
+#### Scenario: Image clipped at the top edge
+- **WHEN** the top part of a thumbnail would be above the history panel
+- **THEN** only the rows of the thumbnail that fall inside the panel are drawn
 
-#### Scenario: Salida de nchat
-- **WHEN** el usuario sale de nchat
-- **THEN** todas las imágenes transmitidas a la terminal se eliminan y la terminal queda sin restos gráficos
+#### Scenario: Exiting nchat
+- **WHEN** the user exits nchat
+- **THEN** all images transmitted to the terminal are deleted and the terminal is left with no graphics leftovers
 
-### Requirement: Configuración
-El sistema SHALL leer `inline_images_enabled` (booleano, por defecto `1`) e `inline_image_max_height` (entero de filas, por defecto `10`) desde `ui.conf`. Las claves MUST agregarse con su valor por defecto a `ui.conf` cuando no existan, sin modificar otras claves existentes.
+### Requirement: Configuration
+The system SHALL read `inline_images_enabled` (boolean, default `1`) and `inline_image_max_height` (integer number of rows, default `10`) from `ui.conf`. The keys MUST be added to `ui.conf` with their default value when they do not exist, without modifying other existing keys.
 
-#### Scenario: Primera ejecución tras actualizar
-- **WHEN** el usuario arranca la nueva versión con un `ui.conf` existente que no tiene las claves nuevas
-- **THEN** `ui.conf` incluye `inline_images_enabled=1` e `inline_image_max_height=10` y el resto de la configuración queda igual
+#### Scenario: First run after updating
+- **WHEN** the user starts the new version with an existing `ui.conf` that does not have the new keys
+- **THEN** `ui.conf` includes `inline_images_enabled=1` and `inline_image_max_height=10`, and the rest of the configuration stays the same
 
-#### Scenario: Altura personalizada
+#### Scenario: Custom height
 - **WHEN** `inline_image_max_height=5`
-- **THEN** ninguna miniatura ocupa más de 5 filas
+- **THEN** no thumbnail takes more than 5 rows
 
-### Requirement: Selección y apertura del mensaje sin cambios
-La selección de mensajes, la apertura de adjuntos, el guardado, la respuesta y las reacciones SHALL comportarse igual que antes. Cada miniatura MUST contar como parte del mensaje al que pertenece para el scroll y la selección.
+### Requirement: Selection and opening of messages unchanged
+Message selection, opening attachments, saving, replying and reactions SHALL behave as before. Each thumbnail MUST count as part of the message it belongs to for scrolling and selection.
 
-#### Scenario: Abrir imagen con miniatura
-- **WHEN** el usuario selecciona un mensaje con miniatura y usa la tecla de abrir adjunto
-- **THEN** la imagen se abre con el comando externo configurado, igual que antes
+#### Scenario: Open an image with a thumbnail
+- **WHEN** the user selects a message with a thumbnail and uses the open-attachment key
+- **THEN** the image opens with the configured external command, as before

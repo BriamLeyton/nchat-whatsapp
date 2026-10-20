@@ -1,23 +1,23 @@
-## 1. Detección
+## 1. Detection
 
-- [x] 1.1 `ParseWhatsAppLink`: links `wa.me`, `api.whatsapp.com/send`, `whatsapp://send` y número de 8 a 15 dígitos; decodificar `text` (`+`, `%XX`).
-- [x] 1.2 `UiContactListDialog`: fila `Open chat with +<número>` al inicio cuando el filtro es número o link; `UiContactListItem` con `phone` y `text`.
+- [x] 1.1 `ParseWhatsAppLink`: `wa.me`, `api.whatsapp.com/send`, `whatsapp://send` links and 8 to 15 digit numbers; decode `text` (`+`, `%XX`).
+- [x] 1.2 `UiContactListDialog`: row `Open chat with +<number>` at the top when the filter is a number or link; `UiContactListItem` with `phone` and `text`.
 
-## 2. Abrir o crear
+## 2. Open or create
 
-- [x] 2.1 `protocol.h`: `CreateChatRequest.phone`; `CreateChatNotify.phone` y `result`.
-- [x] 2.2 `wmchat.cpp`, `cgowm.go`, `gowm.go`: `WmCreateChat` con `IsOnWhatsApp` en goroutine (timeout 10 s) y `WmCreateChatNotify`.
-- [x] 2.3 `uimodel`: `OpenChatByPhone` (chat existente sin red, sin conexión aviso, si no `CreateChatRequest`); manejo de `CreateChatNotify` con chat ya existente y avisos de error.
-- [x] 2.4 Texto pendiente: aplicarlo a la caja si está vacía, o aviso "Draft kept, link text not inserted.".
+- [x] 2.1 `protocol.h`: `CreateChatRequest.phone`; `CreateChatNotify.phone` and `result`.
+- [x] 2.2 `wmchat.cpp`, `cgowm.go`, `gowm.go`: `WmCreateChat` with `IsOnWhatsApp` in a goroutine (10 s timeout) and `WmCreateChatNotify`.
+- [x] 2.3 `uimodel`: `OpenChatByPhone` (existing chat without network, notice if no connection, otherwise `CreateChatRequest`); handling of `CreateChatNotify` with an already existing chat and error notices.
+- [x] 2.4 Pending text: apply it to the box if empty, or the notice "Draft kept, link text not inserted.".
 
-- [x] 2.5 `WmCreateChat`: crear el chat con el número (`PhoneNumber`), no con el LID que devuelve `IsOnWhatsApp`. Compila; verificar en vivo con 4.3.
+- [x] 2.5 `WmCreateChat`: create the chat with the number (`PhoneNumber`), not with the LID returned by `IsOnWhatsApp`. Compiles; verify live with 4.3.
 
-## 3. Documentación
+## 3. Documentation
 
-- [x] 3.1 Ayuda (`uihelpdialog.cpp`) y README: números y links en Alt-n.
+- [x] 3.1 Help (`uihelpdialog.cpp`) and README: numbers and links in Alt-n.
 
-## 4. Verificación
+## 4. Verification
 
-- [x] 4.1 Sandbox sin red: parseo de los formatos de link y número; fila en el diálogo; chat existente se abre con el texto; borrador existente se mantiene; número nuevo sin conexión muestra el aviso.
-- [x] 4.2 En vivo en Ghostty: link de ACME crea el chat con el texto listo; número no registrado muestra el aviso.
-- [x] 4.3 En vivo: chat nuevo por número y primer mensaje; el log muestra `chat <número>@s.whatsapp.net`, el mensaje se ve en el chat abierto y no aparece un segundo chat.
+- [x] 4.1 Offline sandbox: parsing of the link and number formats; row in the dialog; existing chat opens with the text; existing draft is kept; new number without connection shows the notice.
+- [x] 4.2 Live in Ghostty: an ACME link creates the chat with the text ready; an unregistered number shows the notice.
+- [x] 4.3 Live: new chat by number and first message; the log shows `chat <number>@s.whatsapp.net`, the message appears in the open chat, and no second chat appears.

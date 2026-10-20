@@ -1,60 +1,60 @@
 ## Purpose
 
-Evitar que nchat genere tráfico hacia WhatsApp por estados vencidos, y evitar publicar estados por accidente desde el chat de estados.
+Prevent nchat from generating traffic to WhatsApp for expired status updates, and prevent publishing status updates by accident from the status chat.
 
 ## ADDED Requirements
 
-### Requirement: Estado vencido
-El sistema SHALL considerar vencido a todo mensaje del chat de estados (`status@broadcast`) cuya hora de publicación tenga más de 24 horas respecto de la hora actual.
+### Requirement: Expired status
+The system SHALL consider expired every message in the status chat (`status@broadcast`) whose publication time is more than 24 hours before the current time.
 
-#### Scenario: Estado de ayer
-- **WHEN** un estado se publicó hace 25 horas
-- **THEN** se considera vencido
+#### Scenario: Status from yesterday
+- **WHEN** a status was published 25 hours ago
+- **THEN** it is considered expired
 
-#### Scenario: Estado de hoy
-- **WHEN** un estado se publicó hace 3 horas
-- **THEN** no se considera vencido y funciona como hoy
+#### Scenario: Status from today
+- **WHEN** a status was published 3 hours ago
+- **THEN** it is not considered expired and works as it does today
 
-### Requirement: Visto solo local
-Al mostrar un estado vencido no leído, el sistema SHALL marcarlo como leído en memoria y en la caché local, y MUST NOT enviar la confirmación de lectura a WhatsApp.
+### Requirement: Local-only seen
+When showing an unread expired status, the system SHALL mark it as read in memory and in the local cache, and MUST NOT send the read receipt to WhatsApp.
 
-#### Scenario: Recorrer estados viejos no leídos
-- **WHEN** el usuario recorre estados de hace 5 días que estaban sin leer
-- **THEN** quedan leídos en nchat, también después de reiniciar, y no se envía ninguna confirmación de lectura
+#### Scenario: Browse old unread statuses
+- **WHEN** the user browses unread statuses from 5 days ago
+- **THEN** they become read in nchat, also after a restart, and no read receipt is sent
 
-#### Scenario: Estado vigente
-- **WHEN** el usuario ve un estado de hace 2 horas sin leer
-- **THEN** se envía la confirmación de lectura como hoy
+#### Scenario: Current status
+- **WHEN** the user views an unread status from 2 hours ago
+- **THEN** the read receipt is sent as it is today
 
-### Requirement: Sin descargas de estados vencidos
-El sistema MUST NOT pedir a WhatsApp la descarga del adjunto de un estado vencido por ningún motivo: descarga automática, imagen inline, selección, abrir, guardar o ver en visor externo. Si el adjunto ya está descargado, SHALL usarse el archivo local. Si no, el historial MUST mostrar la línea `📎` sin indicador de descarga en curso, y abrir o guardar MUST mostrar el aviso "Expired status, attachment not available."
+### Requirement: No downloads of expired statuses
+The system MUST NOT ask WhatsApp to download the attachment of an expired status for any reason: automatic download, inline image, selection, open, save or view in an external viewer. If the attachment is already downloaded, the local file SHALL be used. Otherwise, the history MUST show the `📎` line without a download-in-progress indicator, and open or save MUST show the notice "Expired status, attachment not available."
 
-#### Scenario: Foto inline vencida sin descargar
-- **WHEN** se muestra un estado vencido con una foto que nunca se descargó
-- **THEN** se ve la línea `📎` sin imagen y no se hace ninguna petición de descarga
+#### Scenario: Expired inline photo not downloaded
+- **WHEN** an expired status with a photo that was never downloaded is shown
+- **THEN** the `📎` line is shown without an image and no download request is made
 
-#### Scenario: Foto vencida ya descargada
-- **WHEN** se muestra un estado vencido cuya foto ya está en disco
-- **THEN** la foto se ve inline como hoy
+#### Scenario: Expired photo already downloaded
+- **WHEN** an expired status whose photo is already on disk is shown
+- **THEN** the photo is shown inline as it is today
 
-#### Scenario: Abrir adjunto vencido
-- **WHEN** el usuario selecciona un estado vencido sin archivo descargado y lo abre
-- **THEN** aparece el aviso y no se hace ninguna petición de descarga
+#### Scenario: Open expired attachment
+- **WHEN** the user selects an expired status without a downloaded file and opens it
+- **THEN** the notice is shown and no download request is made
 
-### Requirement: Sin reacciones a estados vencidos
-Reaccionar a un estado vencido SHALL NOT enviar nada a WhatsApp, y MUST mostrar el aviso "Expired status, cannot react."
+### Requirement: No reactions to expired statuses
+Reacting to an expired status SHALL NOT send anything to WhatsApp, and MUST show the notice "Expired status, cannot react."
 
-#### Scenario: Reaccionar a estado viejo
-- **WHEN** el usuario selecciona un estado de hace 3 días y presiona `Alt-s`
-- **THEN** aparece el aviso y no se envía la reacción
+#### Scenario: React to an old status
+- **WHEN** the user selects a status from 3 days ago and presses `Alt-s`
+- **THEN** the notice is shown and the reaction is not sent
 
-### Requirement: Chat de estados de solo lectura
-En el chat de estados, enviar texto, enviar archivos y editar mensajes SHALL NOT enviar nada a WhatsApp, y MUST mostrar el aviso "Sending to Status Updates is not supported." El texto escrito en la caja de entrada MUST conservarse.
+### Requirement: Read-only status chat
+In the status chat, sending text, sending files and editing messages SHALL NOT send anything to WhatsApp, and MUST show the notice "Sending to Status Updates is not supported." The text typed in the input box MUST be kept.
 
-#### Scenario: Enter en Status
-- **WHEN** el usuario escribe "hola" en el chat de estados y presiona `Enter`
-- **THEN** aparece el aviso, no se publica ningún estado y "hola" sigue en la caja de entrada
+#### Scenario: Enter in Status
+- **WHEN** the user types "hello" in the status chat and presses `Enter`
+- **THEN** the notice is shown, no status is published and "hello" stays in the input box
 
-#### Scenario: Enviar archivo en Status
-- **WHEN** el usuario intenta enviar un archivo en el chat de estados
-- **THEN** aparece el aviso y no se envía nada
+#### Scenario: Send a file in Status
+- **WHEN** the user tries to send a file in the status chat
+- **THEN** the notice is shown and nothing is sent

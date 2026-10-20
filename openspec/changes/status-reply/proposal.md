@@ -1,36 +1,36 @@
 ## Why
 
-Responder un estado desde nchat publicaba el texto como un estado nuevo, porque nchat envía la respuesta al chat actual, que en Status es `status@broadcast`. Desde `status-expired-local-only`, enviar en Status está bloqueado con un aviso, así que hoy no se puede responder un estado.
+Replying to a status from nchat published the text as a new status, because nchat sends the reply to the current chat, which in Status is `status@broadcast`. Since `status-expired-local-only`, sending in Status is blocked with a notice, so today it is not possible to reply to a status.
 
-En WhatsApp, responder un estado es enviar un mensaje privado al autor citando el estado. El autor lo ve en su chat con la miniatura o el texto del estado.
+In WhatsApp, replying to a status means sending a private message to the author quoting the status. The author sees it in their chat with the status's thumbnail or text.
 
 ## What Changes
 
-- En Status, con un estado seleccionado, escribir y dar Enter envía la respuesta al chat privado del autor, citando el estado como lo hace WhatsApp.
-- Al enviar:
-  - nchat pasa al chat del autor, donde se ve la respuesta con la cita, como en la app. Si todavía no hay chat con el autor (primer mensaje), se crea, como al abrir un contacto;
-  - si falla, aparece "Reply to <nombre> failed, please try again from Status Updates." y el texto vuelve a la entrada de Status;
-  - la respuesta aparece en el chat del autor como cualquier mensaje enviado.
-- La cita incluye el texto del estado y, si es foto o video, su miniatura incluida en el mensaje (`<id>.thumb.jpg`). No se descarga nada.
-- Siguen bloqueados, con un aviso:
-  - enviar sin estado seleccionado: publicaría un estado nuevo;
-  - responder un estado propio;
-  - responder un estado vencido (más de 24 h), igual que en la app;
-  - enviar archivos, editar o usar el editor externo en Status, como hoy.
-- En el chat del autor, la cita de una respuesta a estado muestra el texto o el archivo del estado. Hoy se ve vacía, porque el estado no está en ese chat. Vale también para las respuestas que otros hacen a tus estados.
+- In Status, with a status selected, typing and pressing Enter sends the reply to the author's private chat, quoting the status as WhatsApp does.
+- When sending:
+  - nchat moves to the author's chat, where the reply is shown with the quote, as in the app. If there is no chat with the author yet (first message), it is created, as when opening a contact;
+  - if it fails, "Reply to <name> failed, please try again from Status Updates." appears and the text returns to the Status input;
+  - the reply appears in the author's chat like any sent message.
+- The quote includes the status text and, if it is a photo or video, its thumbnail included in the message (`<id>.thumb.jpg`). Nothing is downloaded.
+- These remain blocked, with a notice:
+  - sending without a selected status: it would publish a new status;
+  - replying to your own status;
+  - replying to an expired status (more than 24 h), as in the app;
+  - sending files, editing or using the external editor in Status, as today.
+- In the author's chat, the quote of a reply to a status shows the status's text or file. Today it shows empty, because the status is not in that chat. This also applies to replies others make to your statuses.
 
 ## Capabilities
 
 ### New Capabilities
-- `status-reply`: responder un estado con un mensaje privado al autor que lo cita.
+- `status-reply`: reply to a status with a private message to the author that quotes the status.
 
 ### Modified Capabilities
-<!-- No hay specs existentes en openspec/specs/. -->
+<!-- No existing specs in openspec/specs/. -->
 
 ## Impact
 
-- `lib/common/src/protocol.h`: `ChatMessage.quotedChatId` (chat del mensaje citado, vacío si es el mismo chat).
-- `lib/wmchat/src/wmchat.cpp` y `lib/wmchat/go/gowm.go`: `WmSendMessage` recibe el chat de la cita y la ruta de la miniatura; con `status@broadcast` arma `ContextInfo.RemoteJID` y la cita como imagen o video con miniatura.
-- `src/uimodel.cpp`: `OnKeySendMsg` en Status envía al autor en vez de bloquear; validaciones y aviso.
-- `src/uihistoryview.cpp`: buscar la cita en Status cuando no está en el chat.
-- `README.md`: responder estados.
+- `lib/common/src/protocol.h`: `ChatMessage.quotedChatId` (chat of the quoted message, empty if it is the same chat).
+- `lib/wmchat/src/wmchat.cpp` and `lib/wmchat/go/gowm.go`: `WmSendMessage` receives the quote's chat and the thumbnail path; with `status@broadcast` it builds `ContextInfo.RemoteJID` and the quote as an image or video with a thumbnail.
+- `src/uimodel.cpp`: `OnKeySendMsg` in Status sends to the author instead of blocking; validations and notices.
+- `src/uihistoryview.cpp`: look up the quote in Status when it is not in the chat.
+- `README.md`: replying to statuses.

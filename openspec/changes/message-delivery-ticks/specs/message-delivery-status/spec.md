@@ -1,95 +1,95 @@
 ## Purpose
 
-Mostrar en el historial el estado de entrega de los mensajes enviados (enviado, entregado, leído) con los símbolos y colores de WhatsApp, agregando correctamente los receipts de grupos y conservando el estado entre reinicios.
+Show in the history the delivery status of sent messages (sent, delivered, read) with WhatsApp's symbols and colors, correctly aggregating group receipts and keeping the status across restarts.
 
 ## ADDED Requirements
 
-### Requirement: Estados de entrega de mensajes enviados
-El sistema SHALL asignar a cada mensaje enviado por el usuario uno de estos estados, en orden creciente: `sent` (aceptado por el servidor), `delivered` (entregado al destinatario) y `read` (leído o reproducido). El estado de un mensaje MUST NOT retroceder: un receipt de un estado menor que el actual MUST ser ignorado.
+### Requirement: Delivery statuses of sent messages
+The system SHALL assign to each message sent by the user one of these statuses, in increasing order: `sent` (accepted by the server), `delivered` (delivered to the recipient) and `read` (read or played). A message's status MUST NOT go back: a receipt with a status lower than the current one MUST be ignored.
 
-#### Scenario: Mensaje recién enviado
-- **WHEN** el usuario envía un mensaje y el servidor lo acepta
-- **THEN** el mensaje queda en estado `sent`
+#### Scenario: Newly sent message
+- **WHEN** the user sends a message and the server accepts it
+- **THEN** the message is in the `sent` status
 
-#### Scenario: Receipt de entrega en chat individual
-- **WHEN** llega un receipt de entrega del destinatario para un mensaje en `sent`
-- **THEN** el mensaje pasa a `delivered`
+#### Scenario: Delivery receipt in an individual chat
+- **WHEN** a delivery receipt from the recipient arrives for a message in `sent`
+- **THEN** the message moves to `delivered`
 
-#### Scenario: Receipt de lectura en chat individual
-- **WHEN** llega un receipt de lectura o de reproducción del destinatario
-- **THEN** el mensaje pasa a `read`
+#### Scenario: Read receipt in an individual chat
+- **WHEN** a read or played receipt from the recipient arrives
+- **THEN** the message moves to `read`
 
-#### Scenario: Receipt de entrega tardío
-- **WHEN** un mensaje ya está en `read` y llega un receipt de entrega
-- **THEN** el mensaje permanece en `read`
+#### Scenario: Late delivery receipt
+- **WHEN** a message is already in `read` and a delivery receipt arrives
+- **THEN** the message stays in `read`
 
-#### Scenario: Mensaje enviado desde otro dispositivo
-- **WHEN** el usuario envía un mensaje desde su teléfono y nchat lo recibe sincronizado
-- **THEN** el mensaje aparece en estado `sent` y avanza con los receipts que lleguen después
+#### Scenario: Message sent from another device
+- **WHEN** the user sends a message from their phone and nchat receives it through sync
+- **THEN** the message appears in the `sent` status and advances with the receipts that arrive later
 
-### Requirement: Agregación en grupos
-En chats de grupo, el sistema SHALL marcar un mensaje enviado como `delivered` solo cuando todos los demás participantes del grupo lo entregaron (o leyeron), y como `read` solo cuando todos los demás participantes lo leyeron. Los receipts de los otros dispositivos del propio usuario MUST NOT contar como participantes.
+### Requirement: Aggregation in groups
+In group chats, the system SHALL mark a sent message as `delivered` only when all other group participants have delivered (or read) it, and as `read` only when all other participants have read it. Receipts from the user's own other devices MUST NOT count as participants.
 
-#### Scenario: Grupo parcialmente leído
-- **WHEN** en un grupo de 5 participantes (el usuario y 4 más) 3 participantes leyeron el mensaje y el cuarto solo lo recibió
-- **THEN** el mensaje está en `delivered`
+#### Scenario: Partially read group
+- **WHEN** in a group of 5 participants (the user and 4 others) 3 participants read the message and the fourth only received it
+- **THEN** the message is in `delivered`
 
-#### Scenario: Grupo leído por todos
-- **WHEN** los 4 demás participantes leyeron el mensaje
-- **THEN** el mensaje pasa a `read`
+#### Scenario: Group read by everyone
+- **WHEN** the 4 other participants read the message
+- **THEN** the message moves to `read`
 
-#### Scenario: Reinicio con lecturas parciales
-- **WHEN** 3 de 4 participantes leyeron el mensaje, el usuario reinicia nchat y luego lee el cuarto
-- **THEN** el mensaje pasa a `read`
+#### Scenario: Restart with partial reads
+- **WHEN** 3 of 4 participants read the message, the user restarts nchat and then the fourth reads it
+- **THEN** the message moves to `read`
 
-### Requirement: Persistencia del estado
-El sistema SHALL guardar el estado de entrega de cada mensaje enviado en la caché local, de modo que al reiniciar nchat se muestre el último estado conocido. La actualización de la caché MUST preservar todos los mensajes y datos existentes.
+### Requirement: Status persistence
+The system SHALL store the delivery status of each sent message in the local cache, so that when nchat restarts the last known status is shown. The cache update MUST preserve all existing messages and data.
 
-#### Scenario: Reinicio
-- **WHEN** un mensaje quedó en `delivered` y el usuario reinicia nchat
-- **THEN** el mensaje se muestra como `delivered`
+#### Scenario: Restart
+- **WHEN** a message was in `delivered` and the user restarts nchat
+- **THEN** the message is shown as `delivered`
 
-#### Scenario: Actualización desde la versión anterior
-- **WHEN** el usuario arranca esta versión con una caché existente
-- **THEN** la caché se actualiza sin perder mensajes, y las consultas existentes sobre `messages` y `contacts2` siguen funcionando
+#### Scenario: Update from the previous version
+- **WHEN** the user starts this version with an existing cache
+- **THEN** the cache is updated without losing messages, and existing queries on `messages` and `contacts2` keep working
 
-### Requirement: Estado inferido para mensajes previos
-Para mensajes enviados que no tienen estado de entrega guardado (anteriores a este cambio), el sistema SHALL mostrar `read` si el mensaje está marcado como leído y `delivered` en caso contrario. Un receipt posterior MUST poder avanzar ese estado.
+### Requirement: Inferred status for previous messages
+For sent messages that have no stored delivery status (those from before this change), the system SHALL show `read` if the message is marked as read and `delivered` otherwise. A later receipt MUST be able to advance that status.
 
-#### Scenario: Mensaje viejo leído
-- **WHEN** un mensaje enviado previo a la actualización está marcado como leído
-- **THEN** se muestra como `read`
+#### Scenario: Old read message
+- **WHEN** a sent message from before the update is marked as read
+- **THEN** it is shown as `read`
 
-#### Scenario: Mensaje viejo no leído
-- **WHEN** un mensaje enviado previo a la actualización no está marcado como leído
-- **THEN** se muestra como `delivered`
+#### Scenario: Old unread message
+- **WHEN** a sent message from before the update is not marked as read
+- **THEN** it is shown as `delivered`
 
-### Requirement: Representación visual
-El historial SHALL mostrar el indicador de estado al final del encabezado (nombre y hora) de cada mensaje enviado: `✓` para `sent`, `✓✓` para `delivered` y `✓✓` para `read`. Por defecto, `sent` y `delivered` MUST usar el gris de WhatsApp (`#8696a0`) y `read` el azul de WhatsApp (`#53bdeb`). En terminales que no pueden redefinir colores pero tienen 256 colores, MUST usarse el color más cercano de la paleta xterm-256; con 8 colores, `blue` para `read` y el color por defecto para el resto. Los mensajes recibidos MUST NOT mostrar indicador de estado. Los mensajes pendientes de envío MUST NOT mostrar indicador.
+### Requirement: Visual representation
+The history SHALL show the status indicator at the end of the header (name and time) of each sent message: `✓` for `sent`, `✓✓` for `delivered` and `✓✓` for `read`. By default, `sent` and `delivered` MUST use WhatsApp's gray (`#8696a0`) and `read` WhatsApp's blue (`#53bdeb`). In terminals that cannot redefine colors but have 256 colors, the nearest color in the xterm-256 palette MUST be used; with 8 colors, `blue` for `read` and the default color for the rest. Received messages MUST NOT show a status indicator. Messages pending send MUST NOT show an indicator.
 
-#### Scenario: Mensaje entregado
-- **WHEN** un mensaje enviado está en `delivered`
-- **THEN** su encabezado termina en `✓✓` en gris
+#### Scenario: Delivered message
+- **WHEN** a sent message is in `delivered`
+- **THEN** its header ends with `✓✓` in gray
 
-#### Scenario: Mensaje leído
-- **WHEN** un mensaje enviado está en `read`
-- **THEN** su encabezado termina en `✓✓` en azul
+#### Scenario: Read message
+- **WHEN** a sent message is in `read`
+- **THEN** its header ends with `✓✓` in blue
 
-#### Scenario: Mensaje recibido leído
-- **WHEN** el usuario leyó un mensaje recibido
-- **THEN** su encabezado no muestra `✓`
+#### Scenario: Received message that was read
+- **WHEN** the user read a received message
+- **THEN** its header does not show `✓`
 
-#### Scenario: Selección del mensaje
-- **WHEN** un mensaje enviado está seleccionado
-- **THEN** el indicador mantiene su símbolo y su color, con el atributo de selección
+#### Scenario: Selected message
+- **WHEN** a sent message is selected
+- **THEN** the indicator keeps its symbol and color, with the selection attribute
 
-### Requirement: Configuración de símbolos y colores
-El sistema SHALL leer los símbolos desde `ui.conf` (`receipt_sent_indicator`, `receipt_delivered_indicator`, `receipt_read_indicator`) y los colores desde `color.conf` (`history_receipt_sent_color_fg/_bg`, `history_receipt_delivered_color_fg/_bg`, `history_receipt_read_color_fg/_bg`). Las claves MUST agregarse con su valor por defecto cuando no existan, sin modificar las claves existentes.
+### Requirement: Symbol and color configuration
+The system SHALL read the symbols from `ui.conf` (`receipt_sent_indicator`, `receipt_delivered_indicator`, `receipt_read_indicator`) and the colors from `color.conf` (`history_receipt_sent_color_fg/_bg`, `history_receipt_delivered_color_fg/_bg`, `history_receipt_read_color_fg/_bg`). The keys MUST be added with their default value when they do not exist, without modifying existing keys.
 
-#### Scenario: Primera ejecución tras actualizar
-- **WHEN** el usuario arranca esta versión con `ui.conf` y `color.conf` existentes
-- **THEN** ambos archivos incluyen las claves nuevas con sus valores por defecto y el resto queda igual
+#### Scenario: First run after updating
+- **WHEN** the user starts this version with existing `ui.conf` and `color.conf`
+- **THEN** both files include the new keys with their default values and the rest stays the same
 
-#### Scenario: Color personalizado
-- **WHEN** `color.conf` contiene `history_receipt_read_color_fg=green`
-- **THEN** los mensajes leídos muestran `✓✓` en verde
+#### Scenario: Custom color
+- **WHEN** `color.conf` contains `history_receipt_read_color_fg=green`
+- **THEN** read messages show `✓✓` in green

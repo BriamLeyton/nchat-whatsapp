@@ -1,106 +1,106 @@
 ## Context
 
-El historial (`src/uihistoryview.cpp`) se dibuja de abajo hacia arriba en una ventana ncurses (`m_PaddedWin`). Primero arma un vector de líneas `wlines` por mensaje (adjunto, cita, texto, reacciones) y termina con `wrefresh`. ncurses no sabe nada de imágenes. Cualquier gráfico tiene que escribirse directo a la terminal después del `wrefresh`, en celdas que ncurses deje en blanco.
+The history (`src/uihistoryview.cpp`) is drawn from bottom to top in an ncurses window (`m_PaddedWin`). It first builds a vector of lines `wlines` per message (attachment, quote, text, reactions) and ends with `wrefresh`. ncurses knows nothing about images. Any graphics have to be written directly to the terminal after `wrefresh`, in cells that ncurses leaves blank.
 
-El código ya escribe secuencias crudas fuera de ncurses: `printf("\033[?1004h")` + `fflush` en `UiModel::Impl::TerminalControlResume`. Eso sirve de precedente.
+The code already writes raw sequences outside ncurses: `printf("\033[?1004h")` + `fflush` in `UiModel::Impl::TerminalControlResume`. That is a precedent.
 
-Datos disponibles por mensaje: `FileInfo { fileStatus, fileId, filePath, fileType }`. En WhatsApp, `filePath` ya trae la extensión correcta (`.jpg`, `.webp`, …) antes de la descarga (`gowm.go`, `HandleImageMessage`/`HandleStickerMessage`). `fileType` no se llena en mensajes recibidos.
+Data available per message: `FileInfo { fileStatus, fileId, filePath, fileType }`. In WhatsApp, `filePath` already has the correct extension (`.jpg`, `.webp`, …) before download (`gowm.go`, `HandleImageMessage`/`HandleStickerMessage`). `fileType` is not filled for received messages.
 
-Los diálogos (`UiListDialog::Run`, etc.) se dibujan encima del historial con ventanas ncurses propias y, al cerrarse, llaman `ReinitView()` + `Draw()`.
+The dialogs (`UiListDialog::Run`, etc.) are drawn on top of the history with their own ncurses windows and, when closed, call `ReinitView()` + `Draw()`.
 
-Librerías del sistema presentes: `libwebp`, `libjpeg-turbo`, `libpng`, `libmagic`.
+System libraries present: `libwebp`, `libjpeg-turbo`, `libpng`, `libmagic`.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Dibujar miniaturas con el protocolo gráfico de kitty sin cambiar el modelo de dibujo ncurses existente.
-- Aislar todo lo gráfico en un módulo nuevo para que `uihistoryview.cpp` solo reserve filas y registre posiciones.
-- Que cada redibujado cueste poco: transmitir los píxeles una vez y luego solo reposicionar.
+- Draw thumbnails with the kitty graphics protocol without changing the existing ncurses drawing model.
+- Isolate all graphics in a new module so `uihistoryview.cpp` only reserves rows and records positions.
+- Keep each redraw cheap: transmit the pixels once, then only reposition.
 
 **Non-Goals:**
-- Placeholders Unicode de kitty (U+10EEEE). Requieren diacríticos combinados y colores de 24 bits codificados en celdas, algo que ncurses no maneja de forma confiable.
-- Decodificación asíncrona en un hilo aparte. Queda como mejora si se nota lag.
-- Soporte para Sixel o iTerm2, y passthrough de tmux.
+- kitty Unicode placeholders (U+10EEEE). They require combining diacritics and 24-bit colors encoded in cells, which ncurses does not handle reliably.
+- Asynchronous decoding on a separate thread. It stays as an improvement if lag is noticeable.
+- Support for Sixel or iTerm2, and tmux passthrough.
 
 ## Decisions
 
-### 1. Colocación directa con IDs (`a=T`/`a=p`) en vez de placeholders Unicode
-Cada imagen se transmite una vez con un ID numérico (`a=t,i=<id>,f=32,s=<w>,v=<h>`). Cada `Draw()` hace dos cosas:
-1. Borra todas las colocaciones visibles sin liberar los datos (`a=d,d=a`).
-2. Por cada miniatura registrada mueve el cursor (`ESC[<row>;<col>H`) y coloca la imagen (`a=p,i=<id>,c=<cols>,r=<rows>,C=1,q=2`).
+### 1. Direct placement with IDs (`a=T`/`a=p`) instead of Unicode placeholders
+Each image is transmitted once with a numeric ID (`a=t,i=<id>,f=32,s=<w>,v=<h>`). Each `Draw()` does two things:
+1. Deletes all visible placements without freeing the data (`a=d,d=a`).
+2. For each registered thumbnail, moves the cursor (`ESC[<row>;<col>H`) and places the image (`a=p,i=<id>,c=<cols>,r=<rows>,C=1,q=2`).
 
-`C=1` evita que el cursor se mueva. `q=2` suprime las respuestas de la terminal, que si no llegarían como input basura a `wgetch`. La secuencia va envuelta en `ESC 7` / `ESC 8` (guardar/restaurar cursor) para no desincronizar a ncurses.
+`C=1` prevents the cursor from moving. `q=2` suppresses the terminal's responses, which would otherwise arrive as garbage input to `wgetch`. The sequence is wrapped in `ESC 7` / `ESC 8` (save/restore cursor) so it does not desynchronize ncurses.
 
-*Alternativa descartada:* placeholders Unicode, ver Non-Goals. Su ventaja (scroll y recorte gratis) no compensa la fragilidad con ncurses.
+*Rejected alternative:* Unicode placeholders, see Non-Goals. Their advantage (free scrolling and clipping) does not outweigh the fragility with ncurses.
 
-### 2. Decodificar en el cliente y enviar RGBA (`f=32`)
-El protocolo kitty solo acepta PNG (`f=100`) o píxeles crudos. Las fotos de WhatsApp son JPEG y los stickers WebP. Se decodifica localmente:
-- JPEG, PNG y GIF (primer frame) con `stb_image.h`.
-- WebP con `libwebp` (`WebPDecodeRGBA`). Los stickers WebP animados (~20% de los stickers en la cache real) usan el primer frame con `libwebpdemux` (`WebPAnimDecoder`), igual que con GIF.
+### 2. Decode on the client and send RGBA (`f=32`)
+The kitty protocol only accepts PNG (`f=100`) or raw pixels. WhatsApp photos are JPEG and stickers are WebP. They are decoded locally:
+- JPEG, PNG and GIF (first frame) with `stb_image.h`.
+- WebP with `libwebp` (`WebPDecodeRGBA`). Animated WebP stickers (~20% of the stickers in the real cache) use the first frame via `libwebpdemux` (`WebPAnimDecoder`), the same as with GIF.
 
-Luego se escala con `stb_image_resize2.h` al tamaño exacto en píxeles de la miniatura y se envía en base64 en chunks de 4096 bytes (`m=1`/`m=0`), con transmisión directa (`t=d`).
+It is then scaled with `stb_image_resize2.h` to the exact pixel size of the thumbnail and sent base64-encoded in 4096-byte chunks (`m=1`/`m=0`), with direct transmission (`t=d`).
 
-*Alternativas descartadas:* `t=f` (la terminal lee el archivo) no sirve para JPEG ni WebP y falla si la terminal corre en otro host. Usar `libjpeg`/`libpng` directo implica más código. ImageMagick es una dependencia pesada.
+*Rejected alternatives:* `t=f` (the terminal reads the file) does not work for JPEG or WebP and fails if the terminal runs on another host. Using `libjpeg`/`libpng` directly means more code. ImageMagick is a heavy dependency.
 
-### 3. Tamaño en celdas a partir del tamaño en píxeles de la celda
-El tamaño de celda se obtiene con `ioctl(TIOCGWINSZ)` (`ws_xpixel/ws_col`, `ws_ypixel/ws_row`). Si viene en 0, se consulta `ESC[16t`. Si tampoco responde, se asume 8×16.
+### 3. Size in cells from the cell size in pixels
+The cell size is obtained with `ioctl(TIOCGWINSZ)` (`ws_xpixel/ws_col`, `ws_ypixel/ws_row`). If it is 0, `ESC[16t` is queried. If that does not answer either, 8×16 is assumed.
 
-Con eso: `rows = min(max_height, ceil(h_px / cell_h))`, `cols = ceil(w_px * scale / cell_w)`, limitado al ancho del panel. Los píxeles se escalan a `cols*cell_w × rows*cell_h` respetando la proporción, nunca por encima de su tamaño natural.
+With that: `rows = min(max_height, ceil(h_px / cell_h))`, `cols = ceil(w_px * scale / cell_w)`, limited to the panel width. Pixels are scaled to `cols*cell_w × rows*cell_h` keeping the aspect ratio, never above their natural size.
 
-### 4. Detección de soporte al inicio, antes de `initscr()`
-En `src/ui.cpp`, antes de `initscr()`, la terminal se pone en modo raw y se envía una consulta gráfica (`ESC_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA ESC\`) seguida de DA1 (`ESC[c`). Se lee la respuesta con un timeout de ~200 ms:
-- Si llega `ESC_Gi=31;OK` antes que la respuesta a DA1, hay soporte.
-- Si llega solo DA1, o se cumple el timeout, no hay soporte y se usa el fallback.
+### 4. Support detection at startup, before `initscr()`
+In `src/ui.cpp`, before `initscr()`, the terminal is put into raw mode and a graphics query is sent (`ESC_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA ESC\`) followed by DA1 (`ESC[c`). The reply is read with a timeout of ~200 ms:
+- If `ESC_Gi=31;OK` arrives before the DA1 reply, support is present.
+- If only DA1 arrives, or the timeout expires, there is no support and the fallback is used.
 
-Si la variable `TMUX` está definida, no se habilita. Esto es robusto frente a `TERM`, que en Ghostty a veces es `xterm-256color`.
+If the `TMUX` variable is set, it is not enabled. This is robust against `TERM`, which in Ghostty is sometimes `xterm-256color`.
 
-*Alternativa descartada:* chequear `TERM_PROGRAM=ghostty`/`TERM=xterm-kitty`. Falla con multiplexores y con `ssh`.
+*Rejected alternative:* checking `TERM_PROGRAM=ghostty`/`TERM=xterm-kitty`. It fails with multiplexers and with `ssh`.
 
-### 5. Registro de miniaturas en `UiHistoryView::Draw`
-Al armar `wlines` de un mensaje con imagen renderizable, se insertan `rows` líneas vacías marcadas, justo después de la línea `📎`. Al recorrer las líneas de abajo hacia arriba, se anota la fila de pantalla de la primera línea visible de la imagen y cuántas filas quedaron recortadas arriba.
+### 5. Thumbnail registration in `UiHistoryView::Draw`
+When building `wlines` for a message with a renderable image, `rows` empty marked lines are inserted, right after the `📎` line. When walking the lines from bottom to top, the screen row of the first visible line of the image is recorded, along with how many rows were clipped at the top.
 
-Después de `wrefresh(m_PaddedWin)` se llama `UiImage::PlaceAll(placements, origin)`. Para el recorte superior se usan los parámetros de recorte en píxeles del protocolo (`y=<skip_rows*cell_h>`, `h=<visible_rows*cell_h>`) y `r=<visible_rows>`.
+After `wrefresh(m_PaddedWin)`, `UiImage::PlaceAll(placements, origin)` is called. For top clipping, the protocol's pixel crop parameters are used (`y=<skip_rows*cell_h>`, `h=<visible_rows*cell_h>`) and `r=<visible_rows>`.
 
-El truncado del primer mensaje (`maxMessageLines`) cuenta las filas de la imagen como líneas normales. Si la imagen no cabe, se omite y queda la línea `📎`.
+Truncation of the first message (`maxMessageLines`) counts the image rows as normal lines. If the image does not fit, it is skipped and the `📎` line remains.
 
-### 6. Módulo `src/uiimage.{h,cpp}` (clase estática `UiImage`)
+### 6. Module `src/uiimage.{h,cpp}` (static class `UiImage`)
 API:
-- `Init()`: detección, se llama desde `ui.cpp`.
+- `Init()`: detection, called from `ui.cpp`.
 - `IsEnabled()`
-- `IsImageFile(path)`: por extensión, `.jpg/.jpeg/.png/.webp/.gif`.
-- `Prepare(path, maxCols, maxRows)`: devuelve `{id, cols, rows}` o un fallo. Decodifica, escala y transmite solo la primera vez y guarda el resultado en caché por `(path, maxCols, maxRows)`. Los fallos también se cachean para no reintentar en cada frame.
-- `ClearPlacements()`, `PlaceAll(...)` y `Cleanup()`: `a=d,d=A` al salir, que libera los datos.
+- `IsImageFile(path)`: by extension, `.jpg/.jpeg/.png/.webp/.gif`.
+- `Prepare(path, maxCols, maxRows)`: returns `{id, cols, rows}` or a failure. It decodes, scales and transmits only the first time, and caches the result by `(path, maxCols, maxRows)`. Failures are also cached so they are not retried on every frame.
+- `ClearPlacements()`, `PlaceAll(...)` and `Cleanup()`: `a=d,d=A` on exit, which frees the data.
 
-La escritura se hace con `write(STDOUT_FILENO)` después de `fflush(stdout)`, para no mezclarse con el buffer de ncurses.
+Writing is done with `write(STDOUT_FILENO)` after `fflush(stdout)`, so it does not mix with the ncurses buffer.
 
-### 7. Ocultar alrededor de diálogos y pausas de terminal
-Se llama `UiImage::ClearPlacements()`:
-- en el constructor de `UiDialog`;
-- en `UiModel::Impl::TerminalControlPause()`, para el editor externo y `Ctrl-z`;
-- al inicio de `UiHistoryView::Draw` (siempre, aunque no haya imágenes).
+### 7. Hiding around dialogs and terminal pauses
+`UiImage::ClearPlacements()` is called:
+- in the `UiDialog` constructor;
+- in `UiModel::Impl::TerminalControlPause()`, for the external editor and `Ctrl-z`;
+- at the start of `UiHistoryView::Draw` (always, even if there are no images).
 
-Al cerrarse un diálogo, el `ReinitView()` + `Draw()` existente vuelve a colocar las miniaturas. Hay que verificar que `m_Dirty` del historial quede en `true` en ese flujo.
+When a dialog closes, the existing `ReinitView()` + `Draw()` places the thumbnails again. It must be verified that the history's `m_Dirty` is `true` in that flow.
 
-### 8. Auto-descarga de imágenes
-En el bloque `// File attachment` de `UiHistoryView::Draw` se amplía la condición de prefetch con `|| (UiImage::IsEnabled() && UiImage::IsImageFile(fileInfo.filePath))`. Se reutiliza `DownloadAttachmentLocked(..., DownloadFileActionNone)`. El redibujado al terminar la descarga ya existe.
+### 8. Automatic download of images
+In the `// File attachment` block of `UiHistoryView::Draw`, the prefetch condition is extended with `|| (UiImage::IsEnabled() && UiImage::IsImageFile(fileInfo.filePath))`. `DownloadAttachmentLocked(..., DownloadFileActionNone)` is reused. The redraw when the download finishes already exists.
 
-### 9. Configuración
-Se agregan a los defaults de `UiConfig` (`src/uiconfig.cpp`): `inline_images_enabled=1` e `inline_image_max_height=10`. El mecanismo existente de `UiConfig` ya escribe las claves faltantes al guardar.
+### 9. Configuration
+Added to the `UiConfig` defaults (`src/uiconfig.cpp`): `inline_images_enabled=1` and `inline_image_max_height=10`. The existing `UiConfig` mechanism already writes missing keys when saving.
 
 ## Risks / Trade-offs
 
-- [Decodificar fotos de 12 MP en el hilo de UI bloquea ~50–150 ms la primera vez] → Mitigación: caché por sesión; se decodifica una vez por archivo. Si molesta, se pasa a un hilo worker con un placeholder `⇄` (follow-up).
-- [Respuestas de la terminal filtradas a `wgetch` como teclas basura] → Mitigación: `q=2` en todas las secuencias de ejecución. La consulta de detección se hace antes de `initscr()` y se drena el input.
-- [Desincronización del cursor de ncurses] → Mitigación: `ESC 7`/`ESC 8` alrededor de cada lote y `C=1` en las colocaciones.
-- [Memoria en la terminal por muchas imágenes transmitidas] → Mitigación: límite LRU, por ejemplo 64 imágenes. Al expulsar una se envía `a=d,d=I,i=<id>`.
-- [Restos gráficos si nchat crashea] → Riesgo aceptado: la terminal los limpia con `clear`/reset. `Cleanup()` se llama también desde los handlers de señal de salida existentes.
-- [Ghostty con `TERM=xterm-256color` y ancho de emojis] → No afecta: las celdas de la imagen son espacios.
-- [Bajo `herdr` o tmux no hay soporte gráfico] → Se usa el fallback automático; no es una regresión.
+- [Decoding 12 MP photos on the UI thread blocks for ~50–150 ms the first time] → Mitigation: per-session cache; each file is decoded once. If it is noticeable, move it to a worker thread with a `⇄` placeholder (follow-up).
+- [Terminal responses leak to `wgetch` as garbage keys] → Mitigation: `q=2` on all execution sequences. The detection query is done before `initscr()` and the input is drained.
+- [ncurses cursor desynchronization] → Mitigation: `ESC 7`/`ESC 8` around each batch and `C=1` on placements.
+- [Terminal memory from many transmitted images] → Mitigation: LRU limit, for example 64 images. When one is evicted, `a=d,d=I,i=<id>` is sent.
+- [Graphics leftovers if nchat crashes] → Accepted risk: the terminal clears them with `clear`/reset. `Cleanup()` is also called from the existing exit signal handlers.
+- [Ghostty with `TERM=xterm-256color` and emoji width] → No impact: the image cells are spaces.
+- [Under `herdr` or tmux there is no graphics support] → The automatic fallback is used; it is not a regression.
 
-- [Ghostty libera los datos de las imágenes con `ESC[2J` (clear screen) y al reentrar a la pantalla alternativa; esto se verificó empíricamente con consultas `a=p`, que devuelven `ENOENT`. ncurses emite `ESC[H ESC[2J` en cada `ReinitView()` (`UiScreen` hace `wclear(stdscr)`), y `TerminalControlResume` reentra a la pantalla alternativa. Si la caché sigue usando IDs muertos, las imágenes desaparecen y queda el espacio reservado] → Mitigación: `UiImage::Invalidate()` después de cada clear o reentrada marca las imágenes como no transmitidas. La caché guarda el RGBA escalado (máx. 64 imágenes, ~20–40 MB) y las retransmite al colocarlas, sin volver a decodificar.
+- [Ghostty frees image data on `ESC[2J` (clear screen) and when re-entering the alternate screen; this was verified empirically with `a=p` queries, which return `ENOENT`. ncurses emits `ESC[H ESC[2J` on every `ReinitView()` (`UiScreen` does `wclear(stdscr)`), and `TerminalControlResume` re-enters the alternate screen. If the cache keeps using dead IDs, the images disappear and the reserved space remains] → Mitigation: `UiImage::Invalidate()` after every clear or re-entry marks the images as not transmitted. The cache keeps the scaled RGBA (max 64 images, ~20–40 MB) and retransmits it when placing, without decoding again.
 
 ## Migration Plan
 
-- Sin migración de datos. Se compila y el symlink `~/.local/bin/nchat` toma el binario nuevo.
-- Para desactivar en caliente: `inline_images_enabled=0` en `~/.config/nchat/ui.conf`.
-- Rollback: volver al commit anterior y recompilar, o restaurar `~/.local/bin/nchat.5.19.18.bak`.
+- No data migration. Build, and the symlink `~/.local/bin/nchat` picks up the new binary.
+- To disable on the fly: `inline_images_enabled=0` in `~/.config/nchat/ui.conf`.
+- Rollback: go back to the previous commit and rebuild, or restore `~/.local/bin/nchat.5.19.18.bak`.

@@ -1,83 +1,83 @@
 ## Context
 
 - **`MediaInfo`:**
-  - `Get(profileId, msgId)` lee `.meta` y `.thumb.jpg` y los cachea en memoria;
-  - un hilo de trabajo hace fotogramas y sondeos, y sus resultados se aplican en el hilo de la UI desde `TakePosterUpdated()`.
-- **Vista:** la vista previa de link ya existe. Usa `title` y `description` del `.meta`, y la miniatura con un alto máximo de 4 filas, para mensajes sin adjunto.
-- **Pruebas:**
-  - `curl -A facebookexternalhit/1.1` sobre un link `facebook.com/share/r/...` devuelve `og:title`, `og:description` y `og:image`. Sin ese user agent, Facebook da una página de login;
-  - los textos vienen con entidades HTML (`&#xed;`, `&#xa0;`, `&amp;`).
-- **Decodificación:** `stb_image` no decodifica WebP, que es común en `og:image`. Por eso la miniatura se convierte a JPEG con `ffmpeg`.
+  - `Get(profileId, msgId)` reads `.meta` and `.thumb.jpg` and caches them in memory;
+  - a worker thread makes frames and probes, and its results are applied on the UI thread from `TakePosterUpdated()`.
+- **View:** the link preview already exists. It uses `title` and `description` from `.meta`, and the thumbnail with a maximum height of 4 rows, for messages without an attachment.
+- **Tests:**
+  - `curl -A facebookexternalhit/1.1` on a `facebook.com/share/r/...` link returns `og:title`, `og:description` and `og:image`. Without that user agent, Facebook returns a login page;
+  - the texts come with HTML entities (`&#xed;`, `&#xa0;`, `&amp;`).
+- **Decoding:** `stb_image` does not decode WebP, which is common in `og:image`. For that reason the thumbnail is converted to JPEG with `ffmpeg`.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Consultar solo lo que se dibuja, una vez por link, sin bloquear la UI ni el hilo de fotogramas.
-- Que se desactive con una sola opción.
+- Query only what is drawn, once per link, without blocking the UI or the frame thread.
+- Be disabled with a single option.
 
 **Non-Goals:**
-- Vista previa al enviar.
-- Páginas que requieren JavaScript o login.
+- Preview when sending.
+- Pages that require JavaScript or login.
 
 ## Decisions
 
-### 1. Disparo
-- Se dispara en la pasada final de `UiHistoryView::Draw`, para un mensaje sin adjunto cuyo `MediaMeta` no tiene `title`, ni `description`, ni `link_fetched`.
-- Se toma el primer URL `http://` o `https://` del texto: termina en espacio o salto de línea, y se le quitan `.,;:!?)]}>"'` finales.
-- Se llama `MediaInfo::RequestLinkPreview(profileId, msgId, url)`.
-- Antes se filtra por origen según `link_preview_fetch`:
+### 1. Trigger
+- It is triggered in the final pass of `UiHistoryView::Draw`, for a message without an attachment whose `MediaMeta` has no `title`, no `description` and no `link_fetched`.
+- The first `http://` or `https://` URL in the text is taken: it ends at a space or line break, and trailing `.,;:!?)]}>"'` characters are removed.
+- `MediaInfo::RequestLinkPreview(profileId, msgId, url)` is called.
+- Before that, it is filtered by origin according to `link_preview_fetch`:
 
-  | Origen del mensaje | Nivel mínimo |
+  | Message origin | Minimum level |
   |---|---|
-  | enviado por uno mismo | 1 |
-  | chat 1:1 o estado de un contacto guardado | 1 |
-  | grupo (`@g.us`), cualquier remitente | 2 |
-  | número desconocido, canal u otro | 3 |
+  | sent by yourself | 1 |
+  | 1:1 chat or status from a saved contact | 1 |
+  | group (`@g.us`), any sender | 2 |
+  | unknown number, channel or other | 3 |
 
-  Con `0` no se consulta nada. Los estados se evalúan por el remitente.
-- No es tráfico hacia WhatsApp, así que la regla de estados vencidos no aplica.
+  With `0` nothing is queried. Statuses are evaluated by the sender.
+- It is not traffic to WhatsApp, so the rule about expired statuses does not apply.
 
-### 1b. Contactos guardados
-- `ContactInfo` no distingue un contacto de la agenda de un nombre público (push name). Un contacto es guardado si whatsmeow tiene `FullName` o `FirstName`.
-- `GetContacts` en Go escribe `<profile>/saved_contacts`, un id por línea, con el id de teléfono y su alias `@lid`. Se reescribe en cada sincronización, vía archivo temporal y `rename`.
-- `MediaInfo::IsSavedContact(profileId, userId)` lee el archivo y lo recarga si cambió su `mtime`. Sin archivo, nadie es guardado: con nivel 1 solo se consultan links propios.
+### 1b. Saved contacts
+- `ContactInfo` does not distinguish an address-book contact from a public name (push name). A contact is saved if whatsmeow has `FullName` or `FirstName`.
+- `GetContacts` in Go writes `<profile>/saved_contacts`, one id per line, with the phone id and its `@lid` alias. It is rewritten on every sync, via a temporary file and `rename`.
+- `MediaInfo::IsSavedContact(profileId, userId)` reads the file and reloads it if its `mtime` changed. Without the file, nobody is saved: with level 1 only your own links are queried.
 
-### 2. Hilo de links
-- Es un hilo y una cola separados de los fotogramas, una consulta a la vez, porque una consulta puede tardar hasta 8 s.
-- Se descartan pedidos repetidos por `profileId/msgId`.
-- En la sesión se guarda un mapa `url → resultado`. Si un URL ya se consultó, el resultado se copia al nuevo mensaje sin red.
+### 2. Link thread
+- It is a separate thread and queue from the frames, one query at a time, because a query can take up to 8 s.
+- Repeated requests are discarded by `profileId/msgId`.
+- A `url → result` map is kept for the session. If a URL was already queried, the result is copied to the new message without network.
 
-### 3. Consulta
-- **HTML:** `link_preview_command`, con `%1` reemplazado por el URL entre comillas simples escapadas. Se lee la salida con `popen`, con un tope de 1 MB.
-  - Default: `curl -s -L -m 8 --max-redirs 5 --compressed --proto =http,https --proto-redir =http,https -A 'facebookexternalhit/1.1' '%1' </dev/null 2>/dev/null`. Sin `| head`, para conservar el código de salida de `curl`; el tope de 1 MB lo aplica nchat.
-  - El comando corre en su propio grupo de procesos. Al salir de nchat se mata, para no esperar hasta 8 s.
-- **Parseo** sin dependencias:
-  - se recorren las etiquetas `<meta ...>` y se leen sus atributos `property` o `name`, y `content`, en cualquier orden y con comillas simples o dobles;
-  - **prioridad:** `og:title` > `twitter:title` > `<title>`; `og:description` > `twitter:description` > `description`; `og:image` > `twitter:image`;
-  - se decodifican las entidades `&amp; &lt; &gt; &quot; &apos; &nbsp;`, las Latin-1 (`&oacute;`, `&iquest;`...), las tipográficas comunes (`&hellip;`, `&mdash;`...) y las numéricas `&#NNN;` y `&#xHH;` a UTF-8;
-  - se reemplazan los espacios en blanco por espacio y se recorta;
-  - el título se limita a 200 caracteres y la descripción a 500.
-- **Miniatura:** si hay imagen, se resuelve contra el URL si es relativa (`//host/...` o `/path`). Se ejecuta `link_thumbnail_command` con `%1` = imagen y `%2` = `<msgId>.thumb.jpg`.
+### 3. Query
+- **HTML:** `link_preview_command`, with `%1` replaced by the URL in escaped single quotes. The output is read with `popen`, capped at 1 MB.
+  - Default: `curl -s -L -m 8 --max-redirs 5 --compressed --proto =http,https --proto-redir =http,https -A 'facebookexternalhit/1.1' '%1' </dev/null 2>/dev/null`. No `| head`, so the `curl` exit code is preserved; the 1 MB cap is enforced by nchat.
+  - The command runs in its own process group. It is killed on exit from nchat, so nchat does not wait up to 8 s.
+- **Parsing** without dependencies:
+  - `<meta ...>` tags are scanned and their `property` or `name` and `content` attributes are read, in any order and with single or double quotes;
+  - **priority:** `og:title` > `twitter:title` > `<title>`; `og:description` > `twitter:description` > `description`; `og:image` > `twitter:image`;
+  - the entities `&amp; &lt; &gt; &quot; &apos; &nbsp;`, the Latin-1 ones (`&oacute;`, `&iquest;`...), common typographic ones (`&hellip;`, `&mdash;`...) and numeric `&#NNN;` and `&#xHH;` are decoded to UTF-8;
+  - whitespace is replaced with a space and trimmed;
+  - the title is limited to 200 characters and the description to 500.
+- **Thumbnail:** if there is an image, it is resolved against the URL when relative (`//host/...` or `/path`). `link_thumbnail_command` runs with `%1` = image and `%2` = `<msgId>.thumb.jpg`.
   - Default: `ffmpeg -nostdin -y -v error -protocol_whitelist http,https,tcp,tls -rw_timeout 8000000 -user_agent 'facebookexternalhit/1.1' -i '%1' -vf "scale='min(320,iw)':-2" -frames:v 1 '%2' >/dev/null 2>&1`.
-  - Solo se aceptan URL de imagen `http` o `https`. Una `og:image` como `file:///...` se descarta.
+  - Only `http` or `https` image URLs are accepted. An `og:image` such as `file:///...` is discarded.
 
-### 4. Caché
-- Se escribe `<msgId>.meta`, agregando las claves que falten:
-  - `title`, `description`, si se obtuvieron;
-  - siempre `link_fetched=1`, también si la página no trae metadatos, para no reintentar.
-- **Error de red** (el comando sale con código distinto de 0, por ejemplo sin conexión o dominio inexistente): no se marca. Se reintenta en la próxima sesión, una vez por sesión. Así un arranque sin red no deja links marcados como fallidos.
-- El resultado se encola y se aplica a la caché de `MediaInfo` en el hilo de la UI, con redibujo. Es el mismo patrón de los sondeos.
-- `MediaMeta` gana `linkFetched` y `thumbPath`, este último actualizado si se creó la miniatura.
+### 4. Cache
+- `<msgId>.meta` is written, adding the missing keys:
+  - `title`, `description`, if they were obtained;
+  - always `link_fetched=1`, also when the page has no metadata, so it is not retried.
+- **Network error** (the command exits with a code other than 0, for example no connection or a nonexistent domain): it is not marked. It is retried in the next session, once per session. This way a startup without network does not leave links marked as failed.
+- The result is queued and applied to the `MediaInfo` cache on the UI thread, with a redraw. It is the same pattern as the probes.
+- `MediaMeta` gains `linkFetched` and `thumbPath`, the latter updated if the thumbnail was created.
 
-### 5. Seguridad y privacidad
-- **Lo que no se hace:** no se ejecuta nada de la página. El URL va como argumento entre comillas, y las comillas simples se escapan.
-- **Riesgo:** ver un chat consulta los links visibles. El sitio ve la IP y sabe que el link se vio. Por ejemplo, un link de spam con rastreo confirmaría que el número está activo.
-  - El filtro por origen lo limita a contactos guardados y grupos por defecto.
-  - El README lo advierte. `link_preview_fetch=0` lo desactiva y `3` lo abre a todos.
-- **Default:** `link_preview_fetch=2`, a pedido del usuario.
+### 5. Security and privacy
+- **What is not done:** nothing from the page is executed. The URL is passed as a quoted argument, and single quotes are escaped.
+- **Risk:** viewing a chat queries the visible links. The site sees the IP and learns that the link was viewed. For example, a tracking spam link would confirm that the number is active.
+  - The origin filter limits it to saved contacts and groups by default.
+  - The README warns about it. `link_preview_fetch=0` disables it and `3` opens it to everyone.
+- **Default:** `link_preview_fetch=2`, at the user's request.
 
 ## Risks / Trade-offs
 
-- **User agent:** `facebookexternalhit` hace que Facebook y otros sitios devuelvan metadatos. Algunos sitios pueden responder distinto. Es configurable.
-- **Sitios con login** (Instagram, algunos TikTok): sin metadatos. Se marcan como consultados y se ve el link solo.
-- **Disco:** una miniatura de unos 20 KB y un `.meta` por link visto.
+- **User agent:** `facebookexternalhit` makes Facebook and other sites return metadata. Some sites may respond differently. It is configurable.
+- **Sites with login** (Instagram, some TikTok): no metadata. They are marked as queried and only the link is shown.
+- **Disk:** a thumbnail of about 20 KB and a `.meta` per link seen.

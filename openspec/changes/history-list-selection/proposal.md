@@ -1,27 +1,27 @@
 ## Why
 
-Hoy, al entrar a la selección de mensajes con `↑` desde la caja de texto, el mensaje seleccionado siempre queda abajo de todo. Cada `↑` desplaza el historial completo un mensaje hacia abajo. El usuario pierde de vista los mensajes recientes, y el chat "salta" con cada tecla en vez de comportarse como una lista normal.
+Today, when entering message selection with `↑` from the text box, the selected message always ends up at the very bottom. Each `↑` shifts the whole history down by one message. The user loses sight of recent messages, and the chat "jumps" with every key press instead of behaving like a normal list.
 
 ## What Changes
 
-- Al seleccionar con `↑`, el historial queda quieto y la selección sube por los mensajes visibles.
-- El historial solo se desplaza cuando la selección pasa del borde:
-  - **Arriba:** el mensaje seleccionado entra completo por arriba.
-  - **Abajo, con `↓`:** el historial baja lo necesario para mostrarlo.
-- Al salir de la selección (`↓` en el último mensaje), el historial vuelve al final como hoy.
-- Las acciones que saltan a un mensaje fuera de la vista (ir al citado, buscar, ir al fijado) desplazan el historial para mostrarlo. Si el mensaje ya se ve, no se desplaza nada.
-- `PgUp`/`PgDn` siguen igual: desplazan el historial y salen de la selección.
+- When selecting with `↑`, the history stays still and the selection moves up through the visible messages.
+- The history only scrolls when the selection goes past an edge:
+  - **Up:** the selected message enters fully from the top.
+  - **Down, with `↓`:** the history scrolls down as needed to show it.
+- When leaving the selection (`↓` on the last message), the history returns to the bottom as it does today.
+- Actions that jump to a message outside the view (go to quoted, find, go to pinned) scroll the history to show it. If the message is already visible, nothing scrolls.
+- `PgUp`/`PgDn` stay the same: they scroll the history and leave the selection.
 
 ## Capabilities
 
 ### New Capabilities
-- `history-list-selection`: selección de mensajes en el historial con comportamiento de lista (vista fija, selección móvil).
+- `history-list-selection`: message selection in the history with list behavior (fixed view, moving selection).
 
 ### Modified Capabilities
-<!-- No hay specs existentes en openspec/specs/. -->
+<!-- No existing specs in openspec/specs/. -->
 
 ## Impact
 
-- `src/uimodel.{h,cpp}`: nuevo desplazamiento de la vista por chat, separado del índice del mensaje seleccionado (`m_MessageOffset`, que se mantiene), y su reinicio al entrar y salir de la selección.
-- `src/uihistoryview.cpp`: dibuja desde el desplazamiento de la vista, resalta el mensaje seleccionado esté donde esté y ajusta la vista si el seleccionado no se ve completo.
-- Sin cambios de protocolo, caché ni configuración.
+- `src/uimodel.{h,cpp}`: new per-chat view scroll position, separate from the selected message index (`m_MessageOffset`, which is kept), and its reset on entering and leaving the selection.
+- `src/uihistoryview.cpp`: draws from the view scroll position, highlights the selected message wherever it is, and adjusts the view if the selected message is not fully visible.
+- No changes to protocol, cache or configuration.

@@ -1,34 +1,34 @@
 ## Why
 
-La app oficial de WhatsApp no deja ver estados de más de 24 horas. nchat los guarda en su caché local y permite recorrerlos, lo cual es útil, pero al mostrarlos genera tráfico que ningún cliente oficial produce:
-- envía confirmaciones de visto de estados de hace días (hay 602 sin leer en la caché del usuario);
-- intenta descargar fotos y videos de estados vencidos.
+The official WhatsApp app does not let you view statuses older than 24 hours. nchat keeps them in its local cache and lets you browse them, which is useful, but showing them generates traffic that no official client produces:
+- it sends read confirmations for statuses from days ago (there are 602 unread in the user's cache);
+- it tries to download photos and videos of expired statuses.
 
-Además, el chat de estados acepta texto: enviar desde ahí manda el mensaje a `status@broadcast`, que puede publicarse como un estado propio.
+In addition, the statuses chat accepts text: sending from there sends the message to `status@broadcast`, which can be published as a status of your own.
 
-El usuario quiere evitar cualquier patrón que pueda llamar la atención de WhatsApp sobre su cuenta.
+The user wants to avoid any pattern that could draw WhatsApp's attention to their account.
 
 ## What Changes
 
-- **Estados vencidos** (publicados hace más de 24 horas) son solo locales:
-  - al verlos se marcan como leídos solo en nchat, sin enviar la confirmación a WhatsApp;
-  - por ningún motivo se descargan sus adjuntos: ni la descarga automática, ni las imágenes inline, ni al abrir o guardar. Si el archivo ya está en disco, se usa; si no, queda la línea `📎` y, al abrir o guardar, un aviso;
-  - no se puede reaccionar a ellos.
-- **Envío bloqueado en el chat de estados:** enviar texto, enviar archivos y editar no hacen nada en Status y muestran un aviso. Así nunca se publica un estado por accidente.
-- Los estados de menos de 24 horas siguen como hoy: confirmación de visto, descargas y reacciones.
+- **Expired statuses** (posted more than 24 hours ago) are local-only:
+  - when viewed they are marked as read only in nchat, without sending the confirmation to WhatsApp;
+  - their attachments are never downloaded: not by automatic download, not inline images, and not when opening or saving. If the file is already on disk, it is used; otherwise the `📎` line stays and, when opening or saving, a notice appears;
+  - you cannot react to them.
+- **Sending blocked in the statuses chat:** sending text, sending files and editing do nothing in Status and show a notice. This way a status is never published by accident.
+- Statuses less than 24 hours old keep working as today: read confirmation, downloads and reactions.
 
-Fuera de alcance: publicar estados y responder a un estado por chat privado.
+Out of scope: publishing statuses and replying to a status through a private chat.
 
 ## Capabilities
 
 ### New Capabilities
-- `status-expired-local-only`: estados vencidos sin tráfico hacia WhatsApp, y chat de estados de solo lectura.
+- `status-expired-local-only`: expired statuses with no traffic to WhatsApp, and a read-only statuses chat.
 
 ### Modified Capabilities
-<!-- No hay specs existentes en openspec/specs/. -->
+<!-- No existing specs in openspec/specs/. -->
 
 ## Impact
 
-- `src/uimodel.{h,cpp}`: chequeo de estado vencido, y bloqueos en `MarkRead`, `DownloadAttachment` (único punto de descarga), abrir/guardar, reaccionar, enviar texto, enviar archivo y editar.
-- `README.md`: documenta el comportamiento.
-- Sin cambios de protocolo ni de caché.
+- `src/uimodel.{h,cpp}`: expired-status check, and blocks in `MarkRead`, `DownloadAttachment` (the single download point), open/save, react, send text, send file and edit.
+- `README.md`: documents the behavior.
+- No protocol or cache changes.

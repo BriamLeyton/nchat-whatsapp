@@ -1,42 +1,42 @@
 ## Purpose
 
-Responder un estado enviando un mensaje privado al autor que cita el estado, como en WhatsApp, sin publicar nada en Status.
+Reply to a status by sending a private message to its author that quotes the status, as in WhatsApp, without publishing anything in Status.
 
 ## ADDED Requirements
 
-### Requirement: Respuesta privada al autor
-En Status, con un estado vigente de otra persona seleccionado, enviar un texto SHALL mandarlo al chat privado del autor citando el estado con `RemoteJID` `status@broadcast`. Enviar en Status MUST NOT publicar un estado.
+### Requirement: Private reply to the author
+In Status, with a current status from another person selected, sending text SHALL deliver it to the author's private chat, quoting the status with `RemoteJID` `status@broadcast`. Sending in Status MUST NOT publish a status.
 
-#### Scenario: Responder un estado
-- **WHEN** el usuario selecciona un estado vigente de un contacto, escribe un texto y da Enter
-- **THEN** el texto llega al chat privado del contacto citando el estado
-- **AND** nchat pasa al chat del contacto, creándolo si es el primer mensaje con él
+#### Scenario: Reply to a status
+- **WHEN** the user selects a current status from a contact, types text and presses Enter
+- **THEN** the text reaches the contact's private chat, quoting the status
+- **AND** nchat moves to the contact's chat, creating it if this is the first message with them
 
-#### Scenario: Sin estado seleccionado
-- **WHEN** el usuario escribe en Status sin estado seleccionado y da Enter
-- **THEN** no se envía nada, el texto queda en la entrada y aparece el aviso de que no se puede enviar a Status
+#### Scenario: No status selected
+- **WHEN** the user types in Status without a selected status and presses Enter
+- **THEN** nothing is sent, the text stays in the input, and the notice that it cannot be sent to Status appears
 
-### Requirement: Respuestas no permitidas
-Responder un estado propio o vencido MUST NOT enviar nada y SHALL mostrar un aviso. El texto SHALL quedar en la entrada.
+### Requirement: Disallowed replies
+Replying to your own status or to an expired one MUST NOT send anything and SHALL show a notice. The text SHALL stay in the input.
 
-#### Scenario: Estado vencido
-- **WHEN** el usuario intenta responder un estado de más de 24 h
-- **THEN** aparece "Replying to expired status updates is not supported." y no se envía nada
+#### Scenario: Expired status
+- **WHEN** the user tries to reply to a status older than 24 h
+- **THEN** "Replying to expired status updates is not supported." appears and nothing is sent
 
-#### Scenario: Estado propio
-- **WHEN** el usuario intenta responder un estado propio
-- **THEN** aparece "Replying to own status updates is not supported." y no se envía nada
+#### Scenario: Own status
+- **WHEN** the user tries to reply to their own status
+- **THEN** "Replying to own status updates is not supported." appears and nothing is sent
 
-### Requirement: Cita con miniatura
-Si el estado es foto o video con miniatura incluida, la cita SHALL llevar esa miniatura y su texto. Responder MUST NOT descargar el adjunto del estado.
+### Requirement: Quote with thumbnail
+If the status is a photo or video with an embedded thumbnail, the quote SHALL carry that thumbnail and its text. Replying MUST NOT download the status's attachment.
 
-#### Scenario: Responder un video
-- **WHEN** el usuario responde un estado de video no descargado
-- **THEN** la cita lleva la miniatura incluida y no se descarga el video
+#### Scenario: Reply to a video
+- **WHEN** the user replies to a video status that is not downloaded
+- **THEN** the quote carries the embedded thumbnail and the video is not downloaded
 
-### Requirement: Cita visible en el chat del autor
-Cuando el mensaje citado no está en el chat, la cita SHALL buscarse en los estados cargados y mostrar su texto o archivo.
+### Requirement: Quote visible in the author's chat
+When the quoted message is not in the chat, the quote SHALL be looked up among the loaded statuses and show their text or file.
 
-#### Scenario: Respuesta a un estado propio recibida
-- **WHEN** un contacto responde a un estado propio
-- **THEN** en su chat la cita muestra el texto o archivo del estado
+#### Scenario: Reply to an own status received
+- **WHEN** a contact replies to your own status
+- **THEN** in their chat the quote shows the status's text or file

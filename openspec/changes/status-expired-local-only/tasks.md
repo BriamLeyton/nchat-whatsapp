@@ -1,21 +1,21 @@
-## 1. Modelo
+## 1. Model
 
-- [x] 1.1 `IsExpiredStatus` y visto local en `MarkRead` (memoria + `MessageCache::UpdateMessageIsRead`, sin petición).
-- [x] 1.2 `DownloadAttachment` no envía nada para estados vencidos. `GetMessageAttachmentPath` deja aviso pendiente si no hay archivo, y abrir/guardar/ver lo muestran.
-- [x] 1.3 `PreReact` rechaza estados vencidos con aviso.
-- [x] 1.4 Enviar texto, enviar archivo y editar en Status: aviso, sin enviar, conservando la entrada.
+- [x] 1.1 `IsExpiredStatus` and local read marking in `MarkRead` (memory + `MessageCache::UpdateMessageIsRead`, no request).
+- [x] 1.2 `DownloadAttachment` sends nothing for expired statuses. `GetMessageAttachmentPath` leaves a pending notice if there is no file, and open/save/view show it.
+- [x] 1.3 `PreReact` rejects expired statuses with a notice.
+- [x] 1.4 Send text, send file and edit in Status: notice, nothing sent, input kept.
 
-## 2. Vista y documentación
+## 2. View and documentation
 
-- [x] 2.1 `UiHistoryView::Draw`: sin descarga ni indicador de descargable para estados vencidos.
+- [x] 2.1 `UiHistoryView::Draw`: no download and no downloadable indicator for expired statuses.
 - [x] 2.2 README.
 
-## 3. Verificación
+## 3. Verification
 
-- [x] 3.1 Sandbox offline, revisando en el log que no aparezcan `download file`, `mark message read` ni `send reaction` para estados vencidos:
-  - [x] recorrer estados viejos no leídos los marca leídos y sobrevive al reinicio;
-  - [x] fotos y videos vencidos sin archivo muestran `📎` sin descargar;
-  - [x] abrir y guardar un adjunto vencido muestran el aviso;
-  - [x] `Alt-s` sobre un estado vencido muestra el aviso;
-  - [x] `Enter` y enviar archivo en Status muestran el aviso y conservan el texto.
-- [ ] 3.2 En vivo en Ghostty: un estado de hoy envía visto y descarga como antes, y una foto vencida ya descargada se ve inline (en tmux las imágenes inline están desactivadas).
+- [x] 3.1 Offline sandbox, checking in the log that no `download file`, `mark message read` or `send reaction` appears for expired statuses:
+  - [x] browsing old unread statuses marks them read and survives a restart;
+  - [x] expired photos and videos without a file show `📎` without downloading;
+  - [x] opening and saving an expired attachment show the notice;
+  - [x] `Alt-s` on an expired status shows the notice;
+  - [x] `Enter` and sending a file in Status show the notice and keep the text.
+- [ ] 3.2 Live in Ghostty: a status from today sends read confirmation and downloads as before, and an already downloaded expired photo is shown inline (in tmux inline images are disabled).

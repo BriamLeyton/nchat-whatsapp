@@ -1,72 +1,72 @@
 ## Purpose
 
-Mostrar la vista previa de links que no la traen en el mensaje (viejos, enviados desde nchat, o sin vista previa), consultando la página solo de los mensajes visibles, y guardando el resultado para no repetir la consulta.
+Show the preview of links that do not carry it in the message (old ones, ones sent from nchat, or ones without a preview), by querying the page only for visible messages and storing the result so the query is not repeated.
 
 ## ADDED Requirements
 
-### Requirement: Consulta de links visibles
-Al mostrar un mensaje de un origen permitido (ver *Filtro por origen*), sin adjunto, con un link y sin vista previa conocida ni consulta previa, el sistema SHALL consultar en segundo plano la página del primer link y obtener título, descripción e imagen:
-- de Open Graph;
-- si no hay, de Twitter;
-- si no hay, de `<title>` y `description`.
+### Requirement: Query visible links
+When showing a message from an allowed origin (see *Origin filter*), without an attachment, containing a link and with no known preview or prior query, the system SHALL query the first link's page in the background and obtain title, description and image:
+- from Open Graph;
+- if absent, from Twitter;
+- if absent, from `<title>` and `description`.
 
-La consulta MUST NOT bloquear la UI, y SHALL hacerse una a la vez. Los mensajes no mostrados MUST NOT consultarse.
+The query MUST NOT block the UI, and SHALL be done one at a time. Messages that are not shown MUST NOT be queried.
 
-#### Scenario: Link viejo de Facebook
-- **WHEN** se muestra un mensaje viejo con un link `facebook.com/share/r/...`
-- **THEN** poco después se ven debajo del link el título, la descripción y la miniatura
+#### Scenario: Old Facebook link
+- **WHEN** an old message with a `facebook.com/share/r/...` link is shown
+- **THEN** shortly after, the title, description and thumbnail appear below the link
 
-#### Scenario: Chat no abierto
-- **WHEN** un chat con links nunca se abre
-- **THEN** no se consulta ninguno de sus links
+#### Scenario: Chat never opened
+- **WHEN** a chat with links is never opened
+- **THEN** none of its links are queried
 
-#### Scenario: Desactivado
+#### Scenario: Disabled
 - **WHEN** `link_preview_fetch=0`
-- **THEN** no se hace ninguna consulta
+- **THEN** no query is made
 
-### Requirement: Filtro por origen
-El sistema SHALL consultar links solo de los orígenes que permite `link_preview_fetch`:
-- `0`: ninguno;
-- `1`: mensajes propios, y chats 1:1 o estados de contactos guardados en la agenda;
-- `2` (default): lo anterior, más cualquier mensaje de un grupo;
-- `3`: todos, también números desconocidos y canales.
+### Requirement: Origin filter
+The system SHALL query links only from the origins allowed by `link_preview_fetch`:
+- `0`: none;
+- `1`: own messages, and 1:1 chats or statuses from contacts saved in the address book;
+- `2` (default): the above, plus any message from a group;
+- `3`: everyone, including unknown numbers and channels.
 
-Un contacto que solo tiene nombre público, sin estar en la agenda, MUST NOT considerarse guardado.
+A contact that only has a public name, without being in the address book, MUST NOT be considered saved.
 
-#### Scenario: Desconocido con nivel 2
-- **WHEN** `link_preview_fetch=2` y un número que no está en la agenda envía un link en un chat 1:1
-- **THEN** no se consulta el link, y se ve solo el link
+#### Scenario: Unknown sender at level 2
+- **WHEN** `link_preview_fetch=2` and a number not in the address book sends a link in a 1:1 chat
+- **THEN** the link is not queried, and only the link is shown
 
-#### Scenario: Grupo con nivel 1
-- **WHEN** `link_preview_fetch=1` y llega un link en un grupo
-- **THEN** no se consulta el link
+#### Scenario: Group at level 1
+- **WHEN** `link_preview_fetch=1` and a link arrives in a group
+- **THEN** the link is not queried
 
-#### Scenario: Grupo con nivel 2
-- **WHEN** `link_preview_fetch=2` y llega un link en un grupo de cualquier remitente
-- **THEN** se consulta el link
+#### Scenario: Group at level 2
+- **WHEN** `link_preview_fetch=2` and a link arrives in a group from any sender
+- **THEN** the link is queried
 
-#### Scenario: Link propio
-- **WHEN** `link_preview_fetch=1` y uno mismo envía un link a un número desconocido
-- **THEN** se consulta el link
+#### Scenario: Own link
+- **WHEN** `link_preview_fetch=1` and the user sends a link to an unknown number
+- **THEN** the link is queried
 
-### Requirement: Caché de vista previa
-El resultado SHALL guardarse en `<msgId>.meta` y `<msgId>.thumb.jpg`, con la marca `link_fetched=1` aunque la consulta falle. Un mensaje marcado MUST NOT volver a consultarse, tampoco después de reiniciar. El mismo URL SHALL consultarse una sola vez por sesión, aunque aparezca en varios mensajes.
+### Requirement: Preview cache
+The result SHALL be stored in `<msgId>.meta` and `<msgId>.thumb.jpg`, with the mark `link_fetched=1` even if the query fails. A marked message MUST NOT be queried again, not even after a restart. The same URL SHALL be queried only once per session, even if it appears in several messages.
 
-#### Scenario: Reinicio
-- **WHEN** se reinicia nchat y se muestra un link ya consultado
-- **THEN** se ve su vista previa sin nueva consulta
+#### Scenario: Restart
+- **WHEN** nchat is restarted and an already queried link is shown
+- **THEN** its preview is shown without a new query
 
-#### Scenario: Página sin metadatos
-- **WHEN** la página no devuelve título, descripción ni imagen
-- **THEN** se ve solo el link, y no se vuelve a consultar
+#### Scenario: Page without metadata
+- **WHEN** the page returns no title, description or image
+- **THEN** only the link is shown, and it is not queried again
 
-### Requirement: Texto y miniatura seguros
-Los textos SHALL decodificar las entidades HTML y limitarse a 200 caracteres el título y 500 la descripción. La miniatura SHALL convertirse a JPEG de 320 px de ancho como máximo. El URL MUST pasarse al comando entre comillas simples escapadas.
+### Requirement: Safe text and thumbnail
+The texts SHALL decode HTML entities, and the title SHALL be limited to 200 characters and the description to 500. The thumbnail SHALL be converted to a JPEG at most 320 px wide. The URL MUST be passed to the command in escaped single quotes.
 
-#### Scenario: Entidades
-- **WHEN** el título es `D&#xed;a &amp; noche`
-- **THEN** se muestra `Día & noche`
+#### Scenario: Entities
+- **WHEN** the title is `D&#xed;a &amp; noche`
+- **THEN** `Día & noche` is shown
 
-#### Scenario: URL con comilla
-- **WHEN** el link contiene una comilla simple
-- **THEN** el comando recibe el URL completo como un solo argumento, sin ejecutar nada extra
+#### Scenario: URL with a quote
+- **WHEN** the link contains a single quote
+- **THEN** the command receives the full URL as a single argument, without running anything extra

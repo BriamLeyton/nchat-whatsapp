@@ -1,62 +1,62 @@
 ## Context
 
-- **Pins y archivados en upstream:**
-  - `Alt-p` y `Alt-a` envían `PinChatRequest` y `ArchiveChatRequest`, que Go convierte en parches de app state (`regular_low`).
-  - Los cambios entrantes llegan como `events.Pin` y `events.Archive`.
-- **Archivados en la UI:**
-  - `NewChatsNotify` y `UpdateArchivedNotify` los sacan de `m_ChatVec`.
-  - `NewMessagesNotify` descarta sus mensajes (`return` temprano).
-  - `UpdateChatInfoIsUnread` no notifica.
-  - `chats2.isArchived` persiste el estado.
-- **Orden:** `UiModel::SortChats` pone primero los fijados y luego ordena por silenciado y tiempo.
-- **Dibujo:** `UiListView::Draw` dibuja una fila por chat de `m_ChatVec`, centrando la selección.
-- **Falla resuelta (commit `3f567a41`):**
-  - `regular_low` local estaba en v334 y el snapshot del servidor en v347; ambos fallaban con `mismatching LTHash`.
-  - La recuperación desde el teléfono (`COMPANION_SYNCD_SNAPSHOT_FATAL_RECOVERY`) funcionó: trajo 1 chat fijado y 74 archivados, y los parches siguientes ya se aplican (v348).
+- **Pins and archived chats upstream:**
+  - `Alt-p` and `Alt-a` send `PinChatRequest` and `ArchiveChatRequest`, which Go turns into app state patches (`regular_low`).
+  - Incoming changes arrive as `events.Pin` and `events.Archive`.
+- **Archived chats in the UI:**
+  - `NewChatsNotify` and `UpdateArchivedNotify` remove them from `m_ChatVec`.
+  - `NewMessagesNotify` discards their messages (early `return`).
+  - `UpdateChatInfoIsUnread` does not notify.
+  - `chats2.isArchived` persists the state.
+- **Order:** `UiModel::SortChats` puts pinned chats first and then sorts by mute and time.
+- **Drawing:** `UiListView::Draw` draws one row per chat in `m_ChatVec`, centering the selection.
+- **Fixed failure (commit `3f567a41`):**
+  - The local `regular_low` was at v334 and the server snapshot at v347; both failed with `mismatching LTHash`.
+  - Recovery from the phone (`COMPANION_SYNCD_SNAPSHOT_FATAL_RECOVERY`) worked: it brought 1 pinned chat and 74 archived, and the following patches now apply (v348).
 
 ## Goals / Non-Goals
 
-**Goals:** tres secciones colapsables sin reestructurar `m_ChatVec`, que usan unas 40 funciones; archivados visibles sin notificaciones.
+**Goals:** three collapsible sections without restructuring `m_ChatVec`, which about 40 functions use; archived chats visible without notifications.
 
-**Non-Goals:** fijado local, orden manual entre fijados.
+**Non-Goals:** local-only pinning, manual ordering among pinned chats.
 
 ## Decisions
 
-### 1. Recuperación del estado (implementado)
+### 1. State recovery (implemented)
 - **`ResyncAppState`:**
-  - Hace `FetchAppState(name, fullSync=true)` con `EmitAppStateEventsOnFullSync` activo, para que los eventos actualicen la UI, y después restaura el valor previo.
-  - Un mutex serializa los resyncs, y se omite si la colección se resincronizó hace menos de 30 s.
-- **Si el snapshot falla con LTHash**, `RequestAppStateRecovery` envía `BuildAppStateRecoveryRequest` al teléfono, una vez por sesión y colección, y deja el flag activo hasta `AppStateSyncComplete{Recovery: true}`.
-- **`SendAppStateWithResync`** reintenta una vez el parche de pin o archive tras un resync exitoso.
+  - Runs `FetchAppState(name, fullSync=true)` with `EmitAppStateEventsOnFullSync` active, so the events update the UI, and then restores the previous value.
+  - A mutex serializes resyncs, and it is skipped if the collection was resynced less than 30 s ago.
+- **If the snapshot fails with LTHash**, `RequestAppStateRecovery` sends `BuildAppStateRecoveryRequest` to the phone, once per session and collection, and keeps the flag active until `AppStateSyncComplete{Recovery: true}`.
+- **`SendAppStateWithResync`** retries the pin or archive patch once after a successful resync.
 
-### 2. Archivados dentro de `m_ChatVec`
-- **Entrada a la lista:** se quitan los `continue`/`erase` que los excluyen en `NewChatsNotify` y `UpdateArchivedNotify`. Al archivar o desarchivar se reordena con `SortChats` y se mantiene `m_CurrentChat`, recalculando `m_CurrentChatIndex`.
-- **Mensajes nuevos:** se quita el `return` de `NewMessagesNotify` para los archivados. La lógica actual de `UpdateChatInfoIsUnread` ya evita notificar a los archivados.
-- **Orden en `SortChats`:** la clave primaria es la sección, `Fijados=0`, `Otros=1` y `Archivados=2`. Un chat fijado y archivado cuenta como fijado (WhatsApp no lo permite, pero se cubre). Dentro de `Archivados` se ordena solo por tiempo, ignorando silenciado.
+### 2. Archived chats inside `m_ChatVec`
+- **Entry into the list:** the `continue`/`erase` that exclude them in `NewChatsNotify` and `UpdateArchivedNotify` are removed. When archiving or unarchiving, the list is re-sorted with `SortChats` and `m_CurrentChat` is kept, recalculating `m_CurrentChatIndex`.
+- **New messages:** the `return` in `NewMessagesNotify` is removed for archived chats. The current logic in `UpdateChatInfoIsUnread` already prevents notifying archived chats.
+- **Order in `SortChats`:** the primary key is the section, `Pinned=0`, `Others=1` and `Archived=2`. A chat that is both pinned and archived counts as pinned (WhatsApp does not allow it, but it is covered). Inside `Archived` it is sorted by time only, ignoring mute.
 
-*Alternativa descartada:* un vector aparte para archivados. Obligaría a tocar todas las funciones que indexan `m_ChatVec`.
+*Rejected alternative:* a separate vector for archived chats. It would require changing every function that indexes `m_ChatVec`.
 
-### 3. Sección y visibilidad en `UiModel`
-- **`GetChatSection(profileId, chatId)`** devuelve `Fijados`, `Otros` o `Archivados`.
-- **`IsChatHiddenLocked(index)`** devuelve verdadero si la sección del chat está colapsada.
-- **Navegación:** `OnKeyNextChat` y `OnKeyPrevChat` saltan los ocultos, con wrap-around igual que hoy. Si todos están ocultos, no hacen nada.
-- **`OnKeyToggleOthers` y `OnKeyToggleArchived`:** invierten el estado, lo guardan con `UiConfig::SetBool` y, si el chat actual queda oculto, seleccionan el visible más cercano.
-- **Expansión automática:** `OnKeyUnreadChat`, `goto_chat` y la selección de contacto, cuando su destino está oculto, expanden su sección.
-- **Comportamiento cuando solo hay `Otros` con chats:** colapsar no tiene efecto, para no dejar la lista vacía sin títulos.
+### 3. Section and visibility in `UiModel`
+- **`GetChatSection(profileId, chatId)`** returns `Fijados`, `Otros` or `Archivados`.
+- **`IsChatHiddenLocked(index)`** returns true if the chat's section is collapsed.
+- **Navigation:** `OnKeyNextChat` and `OnKeyPrevChat` skip hidden chats, with wrap-around as today. If all are hidden, they do nothing.
+- **`OnKeyToggleOthers` and `OnKeyToggleArchived`:** invert the state, save it with `UiConfig::SetBool` and, if the current chat becomes hidden, select the nearest visible one.
+- **Automatic expansion:** `OnKeyUnreadChat`, `goto_chat` and contact selection, when their target is hidden, expand its section.
+- **Behavior when only `Otros` has chats:** collapsing has no effect, so the list is not left empty without titles.
 
-### 4. Filas virtuales en `UiListView`
-`Draw` arma filas `{título(sección, total, hayNoLeídos) | chat(índice)}` recorriendo `m_ChatVec`, que ya viene agrupado por sección:
-- se inserta un título al cambiar de sección, salvo cuando la única sección con chats es `Otros`;
-- las secciones colapsadas no aportan filas de chat, y su título muestra `(N)` y `*`.
+### 4. Virtual rows in `UiListView`
+`Draw` builds rows `{title(section, total, hasUnread) | chat(index)}` walking `m_ChatVec`, which is already grouped by section:
+- a title is inserted when the section changes, except when the only section with chats is `Otros`;
+- collapsed sections contribute no chat rows, and their title shows `(N)` and `*`.
 
-El desplazamiento se centra en la fila del chat seleccionado. Si no hay selección visible, se usa la primera fila. Los títulos usan `list_color_header` con `A_BOLD`, y su `*` usa `list_color_unread`.
+Scrolling centers on the row of the selected chat. If there is no visible selection, the first row is used. Titles use `list_color_header` with `A_BOLD`, and their `*` uses `list_color_unread`.
 
-### 5. Teclas
-`toggle_others` usa `\33\157` (Alt-o) y `toggle_archived` usa `\33\150` (Alt-h). Las dos combinaciones están libres en los defaults de `uikeyconfig.cpp`.
+### 5. Keys
+`toggle_others` uses `\33\157` (Alt-o) and `toggle_archived` uses `\33\150` (Alt-h). Both combinations are free in the defaults of `uikeyconfig.cpp`.
 
 ## Risks / Trade-offs
 
-- **74 archivados más en la lista.** Mitigación: `Archivados` empieza colapsada.
-- **Cambio de comportamiento: los mensajes de archivados ahora se cargan en la UI.** El costo de memoria es igual al de cualquier chat; el historial ya se guardaba en la caché.
-- **La recuperación depende del teléfono en línea.** Si no responde, todo sigue como antes (log de warning) y se reintenta en la próxima sesión.
-- **WhatsApp limita a 3 los chats fijados.** El servidor rechaza el cuarto; queda en el log.
+- **74 more archived chats in the list.** Mitigation: `Archivados` starts collapsed.
+- **Behavior change: archived chats' messages are now loaded in the UI.** The memory cost is the same as for any chat; the history was already stored in the cache.
+- **Recovery depends on the phone being online.** If it does not respond, everything stays as before (warning in the log) and it is retried in the next session.
+- **WhatsApp limits pinned chats to 3.** The server rejects the fourth; it is recorded in the log.

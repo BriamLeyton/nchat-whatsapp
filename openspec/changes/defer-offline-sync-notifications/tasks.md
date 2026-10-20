@@ -1,17 +1,17 @@
-## 1. Go y protocolo
+## 1. Go and protocol
 
-- [x] 1.1 `protocol.h`: `OfflineSyncNotifyType` y `OfflineSyncNotify{isStarted}`; `wmchat.{h,cpp}`: `WmOfflineSyncNotify(connId, isStarted)` que encola un `DeferNotifyRequest`; `cgowm.go`: `extern` y `CWmOfflineSyncNotify`. Verificar: `cd build && make -j$(nproc)` compila sin errores.
-- [x] 1.2 `gowm.go`: `case *events.OfflineSyncPreview` llama `CWmOfflineSyncNotify(connId, 1)` y registra en el log `Total`/`Messages`/`Receipts`; `case *events.OfflineSyncCompleted` llama `CWmOfflineSyncNotify(connId, 0)` y mantiene `HandleSyncContacts()`. Verificar: compila y, al arrancar nchat, el log muestra el preview y el fin.
+- [x] 1.1 `protocol.h`: `OfflineSyncNotifyType` and `OfflineSyncNotify{isStarted}`; `wmchat.{h,cpp}`: `WmOfflineSyncNotify(connId, isStarted)` that enqueues a `DeferNotifyRequest`; `cgowm.go`: `extern` and `CWmOfflineSyncNotify`. Verify: `cd build && make -j$(nproc)` compiles without errors.
+- [x] 1.2 `gowm.go`: `case *events.OfflineSyncPreview` calls `CWmOfflineSyncNotify(connId, 1)` and logs `Total`/`Messages`/`Receipts`; `case *events.OfflineSyncCompleted` calls `CWmOfflineSyncNotify(connId, 0)` and keeps `HandleSyncContacts()`. Verify: it compiles and, on nchat startup, the log shows the preview and the end.
 
 ## 2. UI
 
-- [x] 2.1 `uimodel.cpp`: extraer de `UpdateChatInfoIsUnread` el bloque de campana y escritorio a `NotifyChatMessage(profileId, chatId, chatMessage)`, sin cambiar el comportamiento. Verificar: compila y un mensaje recibido con nchat conectado sigue notificando.
-- [x] 2.2 `uimodel.{h,cpp}`: estado por perfil `m_OfflineSyncStartTime`, `m_OfflineSyncEndTime`, `m_OfflineSyncPendingChats`; `case OfflineSyncNotifyType` según design.md (decisión 4: el preview inicia o prolonga, el fin sin retención se ignora). Verificar: el log muestra el inicio y el fin de la retención.
-- [x] 2.3 `UpdateChatInfoIsUnread`: en retención, añadir el chat a los pendientes en vez de llamar `NotifyChatMessage`. Verificar: el log muestra los chats retenidos y no suena nada durante la sincronización.
-- [x] 2.4 `ProcessOfflineSyncFlush()` desde `ProcessTimers()`: vaciar 2 s después del fin o 60 s después del inicio; por chat, revisar archivado/restringido, último mensaje entrante sin leer, silenciado/mención y `receivedAfterConnect`, y llamar `NotifyChatMessage`; registrar en el log los pendientes y los notificados. Verificar: compila y el log muestra el vaciado con los conteos.
+- [x] 2.1 `uimodel.cpp`: extract from `UpdateChatInfoIsUnread` the bell and desktop block into `NotifyChatMessage(profileId, chatId, chatMessage)`, without changing behavior. Verify: it compiles and a message received with nchat connected still notifies.
+- [x] 2.2 `uimodel.{h,cpp}`: per-profile state `m_OfflineSyncStartTime`, `m_OfflineSyncEndTime`, `m_OfflineSyncPendingChats`; `case OfflineSyncNotifyType` according to design.md (decision 4: the preview starts or extends, an end without retention is ignored). Verify: the log shows the start and end of the retention.
+- [x] 2.3 `UpdateChatInfoIsUnread`: during retention, add the chat to the pending ones instead of calling `NotifyChatMessage`. Verify: the log shows the retained chats and nothing rings during the sync.
+- [x] 2.4 `ProcessOfflineSyncFlush()` from `ProcessTimers()`: flush 2 s after the end or 60 s after the start; per chat, check archived/restricted, last incoming message unread, muted/mention and `receivedAfterConnect`, and call `NotifyChatMessage`; log the pending and notified chats. Verify: it compiles and the log shows the flush with the counts.
 
-## 3. Verificación
+## 3. Verification
 
-- [ ] 3.1 En vivo en Ghostty: con nchat abierto, cortar la red (`nmcli networking off`) unos minutos; recibir mensajes en 2 chats y leer uno en el teléfono; volver a conectar. Esperado: no suena nada durante la sincronización; al final, una notificación solo del chat no leído y una sola campana.
-- [x] 3.2 En vivo: suspender el equipo (`systemctl suspend`) con mensajes que se leen en el teléfono durante la suspensión. Esperado: al volver no hay notificaciones.
-- [ ] 3.3 En vivo: con nchat conectado y sin sincronización en curso, un mensaje nuevo notifica al instante como antes. Al arrancar nchat, los mensajes antiguos no notifican.
+- [ ] 3.1 Live in Ghostty: with nchat open, cut the network (`nmcli networking off`) for a few minutes; receive messages in 2 chats and read one on the phone; reconnect. Expected: nothing rings during the sync; at the end, one notification only for the unread chat and a single bell.
+- [x] 3.2 Live: suspend the machine (`systemctl suspend`) with messages that are read on the phone during the suspension. Expected: on resume there are no notifications.
+- [ ] 3.3 Live: with nchat connected and no sync in progress, a new message notifies instantly as before. On nchat startup, old messages do not notify.

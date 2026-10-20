@@ -1,44 +1,44 @@
 ## Context
 
-- **Protocolo:** `GetChatId` en `gowm.go` ya agrupa los estados en el chat `status@broadcast`, y al sincronizar contactos se le da el nombre "Status Updates". Hoy hay 1563 estados en la caché del usuario.
-- **Visibilidad:** `status_broadcast` (0 oculto, 1 silenciado, 2 visible) se aplica con `IsChatForceHidden`/`IsChatForceMuted`.
-- **Secciones:** `GetChatSection` devuelve Pinned/Others/Archived. `SortChats` ordena por sección y calcula `m_SectionChatCount`. `IsChatHidden` oculta chats de secciones colapsadas cuando hay chats en otras secciones. `UiListView::Draw` muestra títulos solo si algún chat no está en "Others".
+- **Protocol:** `GetChatId` in `gowm.go` already groups statuses into the `status@broadcast` chat, and when syncing contacts it is given the name "Status Updates". Today there are 1563 statuses in the user's cache.
+- **Visibility:** `status_broadcast` (0 hidden, 1 muted, 2 visible) is applied with `IsChatForceHidden`/`IsChatForceMuted`.
+- **Sections:** `GetChatSection` returns Pinned/Others/Archived. `SortChats` sorts by section and computes `m_SectionChatCount`. `IsChatHidden` hides chats in collapsed sections when there are chats in other sections. `UiListView::Draw` shows titles only if some chat is not in "Others".
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Estados primero, fuera de las secciones, con estilo propio.
-- Reusar el chat existente: selección, historial, no leídos e imágenes inline siguen funcionando igual.
+- Statuses first, outside the sections, with their own style.
+- Reuse the existing chat: selection, history, unread and inline images keep working the same way.
 
 **Non-Goals:**
-- Filtrar por 24 horas, agrupar por contacto, visor de estados y publicar.
+- Filtering by 24 hours, grouping by contact, a separate statuses viewer, and publishing.
 
 ## Decisions
 
-### 1. Sección propia ordenada primero
-Se agrega `ChatSectionStatus` al enum como valor 0, y las demás suben uno: Status=0, Pinned=1, Others=2, Archived=3, Count=4.
-- `GetChatSection` devuelve `ChatSectionStatus` para `status@broadcast`, antes de mirar fijado o archivado.
-- `SortChats` lo deja primero sin cambios, porque ya ordena por sección.
-- `m_SectionCollapsed[Status]` es siempre `false`, y `SetSectionCollapsed` lo ignora, igual que con Pinned.
-- Los arrays por sección (`m_SectionCollapsed`, `m_SectionChatCount`, contadores y títulos de la lista) pasan a tamaño 4. La persistencia usa nombres de opción, así que no cambia.
+### 1. Own section sorted first
+`ChatSectionStatus` is added to the enum as value 0, and the others move up by one: Status=0, Pinned=1, Others=2, Archived=3, Count=4.
+- `GetChatSection` returns `ChatSectionStatus` for `status@broadcast`, before checking pinned or archived.
+- `SortChats` leaves it first without changes, because it already sorts by section.
+- `m_SectionCollapsed[Status]` is always `false`, and `SetSectionCollapsed` ignores it, as with Pinned.
+- The per-section arrays (`m_SectionCollapsed`, `m_SectionChatCount`, counters and list titles) become size 4. Persistence uses option names, so it does not change.
 
-*Alternativa descartada:* una fila sintética fuera de `m_ChatVec`. Obligaría a duplicar la selección, el historial y los no leídos.
+*Rejected alternative:* a synthetic row outside `m_ChatVec`. It would require duplicating selection, history and unread handling.
 
-### 2. Fuera de títulos y colapso
-- **`IsChatHidden`:** devuelve `false` para Status. Al calcular "chats en otras secciones" se excluye Status, para que con solo "Others" + estados no se oculte "Others" sin título visible.
-- **`UiListView::Draw`:** los títulos se muestran si hay chats en Pinned o Archived (antes: "si algún chat no está en Others"). La fila de Status nunca lleva título.
+### 2. Outside titles and collapsing
+- **`IsChatHidden`:** returns `false` for Status. When computing "chats in other sections", Status is excluded, so that with only "Others" + statuses, "Others" is not hidden without a visible title.
+- **`UiListView::Draw`:** titles are shown if there are chats in Pinned or Archived (before: "if some chat is not in Others"). The Status row never has a title.
 
-### 3. Dibujo
-- **Nombre:** `list_status_name` (por defecto `◉ Status`), en lugar del nombre del contacto.
-- **Estilo:** `list_attr_status | list_color_status` en toda la fila. Si está seleccionada se suma `list_attr_selected` (por defecto `reverse`).
-- **No leídos:** el indicador `*` usa el mismo color de estilo de la fila, para no romper el fondo.
-- **Colores por defecto:** `list_color_status_fg=0x6fcfa8`, `list_color_status_bg=0x173029` (verde oscuro discreto sobre fondos oscuros; el verde de WhatsApp `#25d366` resultó demasiado llamativo), `list_attr_status=bold`. En terminales sin colores hex se aproximan a la paleta 256, como en los ticks.
+### 3. Drawing
+- **Name:** `list_status_name` (default `◉ Status`), instead of the contact's name.
+- **Style:** `list_attr_status | list_color_status` across the whole row. If selected, `list_attr_selected` (default `reverse`) is added.
+- **Unread:** the `*` indicator uses the same style color as the row, so as not to break the background.
+- **Default colors:** `list_color_status_fg=0x6fcfa8`, `list_color_status_bg=0x173029` (a subtle dark green on dark backgrounds; WhatsApp's green `#25d366` turned out too loud), `list_attr_status=bold`. On terminals without hex colors they are approximated to the 256 palette, as with the ticks.
 
-### 4. Fijar y archivar
-`OnKeyPinChat` y `OnKeyArchiveChat` salen sin hacer nada si el chat actual es `status@broadcast`.
+### 4. Pin and archive
+`OnKeyPinChat` and `OnKeyArchiveChat` return without doing anything if the current chat is `status@broadcast`.
 
 ## Risks / Trade-offs
 
-- **Renumerar el enum:** cualquier código que use los valores de sección como números fijos se rompe. Mitigación: solo se usan por nombre (revisado con grep), y la persistencia usa claves de opción.
-- **Muchos estados viejos en el historial (1563):** se ven todos, como hoy. El filtro por 24 horas queda fuera de alcance.
-- **Contraste del `*` sobre el verde:** se dibuja con el color de la fila. Si se prefiere otro color, se puede configurar con `list_color_status`.
+- **Renumbering the enum:** any code that uses section values as fixed numbers would break. Mitigation: they are only used by name (checked with grep), and persistence uses option keys.
+- **Many old statuses in the history (1563):** all are shown, as today. The 24-hour filter is out of scope.
+- **Contrast of `*` on green:** it is drawn with the row's color. If another color is preferred, it can be configured with `list_color_status`.

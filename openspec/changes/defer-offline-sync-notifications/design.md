@@ -1,78 +1,78 @@
 ## Context
 
-Motivación en proposal.md (Why). Estado actual relevante:
+Motivation is in proposal.md (Why). Relevant current state:
 
-- La decisión de notificar está en `UiModel::Impl::UpdateChatInfoIsUnread` (`src/uimodel.cpp`). Se llama al añadir mensajes y al cambiar su estado de leído. Activa `m_TriggerTerminalBell` (la campana suena en `Process()`) y llama `DesktopNotify` en el momento.
-- Notifica solo si el chat pasa de leído a no leído (o siempre con `notify_every_unread`) y si `timeSent > m_ConnectTime[profileId]`. `m_ConnectTime` solo se fija con el `ConnectNotify` de `WmChat::Login()`.
-- whatsmeow procesa los nodos del socket en orden en `handlerQueueLoop` (un nodo a la vez). La cola offline llega así: nodo `ib/offline_preview` (`events.OfflineSyncPreview`), mensajes y recibos pendientes (incluidos `read-self`) y nodo `ib/offline` (`events.OfflineSyncCompleted`). Si no hay pendientes, no llega preview.
-- `gowm.go` ya maneja `OfflineSyncCompleted` (llama `HandleSyncContacts`), pero no `OfflineSyncPreview`.
-- Go→C++: los eventos van por un callback C (`CWm*Notify` en `cgowm.go`, `Wm*Notify` en `wmchat.cpp`), que encola un `DeferNotifyRequest` con el `ServiceMessage`. El hilo del protocolo los entrega a la UI en orden FIFO, así que la UI recibe el fin de la sincronización después de todos los mensajes y recibos anteriores.
-- `ReceiptTypeReadSelf` ya se convierte en `NewMessageStatusNotify(isRead=true)`, que llama `UpdateChatInfoIsUnread` y marca el chat como leído.
-- `ProcessTimers()` se ejecuta cada ~200 ms en el hilo de la UI.
+- The decision to notify is in `UiModel::Impl::UpdateChatInfoIsUnread` (`src/uimodel.cpp`). It is called when messages are added and when their read state changes. It sets `m_TriggerTerminalBell` (the bell rings in `Process()`) and calls `DesktopNotify` immediately.
+- It notifies only if the chat goes from read to unread (or always with `notify_every_unread`) and if `timeSent > m_ConnectTime[profileId]`. `m_ConnectTime` is only set by the `ConnectNotify` of `WmChat::Login()`.
+- whatsmeow processes socket nodes in order in `handlerQueueLoop` (one node at a time). The offline queue arrives like this: node `ib/offline_preview` (`events.OfflineSyncPreview`), pending messages and receipts (including `read-self`), and node `ib/offline` (`events.OfflineSyncCompleted`). If nothing is pending, no preview arrives.
+- `gowm.go` already handles `OfflineSyncCompleted` (it calls `HandleSyncContacts`), but not `OfflineSyncPreview`.
+- Go→C++: events go through a C callback (`CWm*Notify` in `cgowm.go`, `Wm*Notify` in `wmchat.cpp`), which enqueues a `DeferNotifyRequest` with the `ServiceMessage`. The protocol thread delivers them to the UI in FIFO order, so the UI receives the end of the sync after all previous messages and receipts.
+- `ReceiptTypeReadSelf` is already converted into `NewMessageStatusNotify(isRead=true)`, which calls `UpdateChatInfoIsUnread` and marks the chat as read.
+- `ProcessTimers()` runs every ~200 ms on the UI thread.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Diferir la campana y la notificación de escritorio de los mensajes que llegan durante la sincronización offline, y decidir al final con el estado de leído ya actualizado.
-- Reutilizar la lógica y las reglas actuales de notificación, sin duplicarlas.
+- Defer the bell and the desktop notification for messages that arrive during the offline sync, and decide at the end with the read state already updated.
+- Reuse the current notification logic and rules, without duplicating them.
 
 **Non-Goals:**
-- No se cambia `m_ConnectTime` ni el filtro de mensajes antiguos al arrancar.
-- No se agrupan varios chats en una sola notificación de escritorio.
-- No se procesa la acción `markChatAsRead` del app state. El teléfono envía `read-self` por mensaje, y eso basta.
-- No hay opción de configuración nueva: la retención está siempre activa.
+- No change to `m_ConnectTime` or to the filter of old messages at startup.
+- No grouping of several chats into a single desktop notification.
+- The `markChatAsRead` action of the app state is not processed. The phone sends `read-self` per message, and that is enough.
+- No new configuration option: the retention is always active.
 
 ## Decisions
 
-### 1. Un solo mensaje de protocolo `OfflineSyncNotify { bool isStarted; }`
-Go envía `isStarted=true` en `events.OfflineSyncPreview` y `isStarted=false` en `events.OfflineSyncCompleted`, con un nuevo `CWmOfflineSyncNotify(connId, isStarted)`.
-- Alternativa: reutilizar `FlagSyncing` del estado (`CWmSetStatus`). Se descarta: el estado es una barra de flags para la vista, no viaja en la cola de notificaciones, y no garantiza el orden con los mensajes.
-- Alternativa: un timer de silencio tras `events.Connected`. Se descarta: no sabe cuándo terminan los recibos y silenciaría también mensajes nuevos.
+### 1. A single protocol message `OfflineSyncNotify { bool isStarted; }`
+Go sends `isStarted=true` on `events.OfflineSyncPreview` and `isStarted=false` on `events.OfflineSyncCompleted`, through a new `CWmOfflineSyncNotify(connId, isStarted)`.
+- Alternative: reuse `FlagSyncing` of the status (`CWmSetStatus`). Rejected: the status is a bar of flags for the view, it does not travel in the notification queue, and it does not guarantee the order with the messages.
+- Alternative: a silence timer after `events.Connected`. Rejected: it does not know when the receipts end, and it would also silence new messages.
 
-### 2. Retención en la UI, por perfil
-Estado nuevo en `UiModel::Impl`:
-- `m_OfflineSyncStartTime[profileId]` (ms), presente mientras dura la retención;
-- `m_OfflineSyncEndTime[profileId]` (ms), fijado al recibir el fin;
-- `m_OfflineSyncPendingChats[profileId]` (`std::set<std::string>`), los chats que habrían notificado.
+### 2. Retention in the UI, per profile
+New state in `UiModel::Impl`:
+- `m_OfflineSyncStartTime[profileId]` (ms), present while the retention lasts;
+- `m_OfflineSyncEndTime[profileId]` (ms), set when the end is received;
+- `m_OfflineSyncPendingChats[profileId]` (`std::set<std::string>`), the chats that would have notified.
 
-En `UpdateChatInfoIsUnread`, en la rama que hoy notifica, si el perfil está en retención no se activa la campana ni se llama `DesktopNotify`: se añade el chat a los pendientes. El cálculo de `isUnread` y la actualización de `profileChatInfos[...].isUnread` no cambian, así que la lista se ve igual.
+In `UpdateChatInfoIsUnread`, in the branch that notifies today, if the profile is in retention the bell is not activated and `DesktopNotify` is not called: the chat is added to the pending ones. The computation of `isUnread` and the update of `profileChatInfos[...].isUnread` do not change, so the list looks the same.
 
-Para no duplicar la lógica, el bloque que decide campana + escritorio se extrae a un método `NotifyChatMessage(profileId, chatId, chatMessage)`. Lo usan la ruta inmediata y el vaciado.
+To avoid duplicating the logic, the block that decides bell + desktop is extracted to a method `NotifyChatMessage(profileId, chatId, chatMessage)`. Both the immediate path and the flush use it.
 
-### 3. Vaciado en `ProcessTimers` con margen de 2 s y tope de 60 s
-`ProcessOfflineSyncFlush()` se llama desde `ProcessTimers()`. Vacía un perfil cuando:
-- han pasado 2 s desde `m_OfflineSyncEndTime`, o
-- han pasado 60 s desde `m_OfflineSyncStartTime` sin fin.
+### 3. Flush in `ProcessTimers` with a 2 s margin and a 60 s cap
+`ProcessOfflineSyncFlush()` is called from `ProcessTimers()`. It flushes a profile when:
+- 2 s have passed since `m_OfflineSyncEndTime`, or
+- 60 s have passed since `m_OfflineSyncStartTime` without an end.
 
-El margen de 2 s cubre los eventos que whatsmeow despacha en goroutines (descargas, reintentos de descifrado) y los que llegan justo después del nodo `offline`. Durante el margen la retención sigue activa.
+The 2 s margin covers the events that whatsmeow dispatches in goroutines (downloads, decryption retries) and those that arrive right after the `offline` node. During the margin the retention stays active.
 
-Al vaciar, para cada chat pendiente:
-1. si el chat ya no existe en `m_ChatInfos`, está archivado o restringido, se omite;
-2. se toma el último mensaje (`GetLastMessageId`). Si es saliente o está leído, se omite;
-3. se aplican las reglas de silenciado (`muted_notify_unread`, `hasMention`) y `receivedAfterConnect`;
-4. se llama `NotifyChatMessage` con la campana limitada a una vez (en la práctica ya lo está, porque `m_TriggerTerminalBell` es un booleano que se consume en `Process()`).
+When flushing, for each pending chat:
+1. if the chat no longer exists in `m_ChatInfos`, is archived or is restricted, it is skipped;
+2. the last message is taken (`GetLastMessageId`). If it is outgoing or already read, it is skipped;
+3. the mute rules (`muted_notify_unread`, `hasMention`) and `receivedAfterConnect` are applied;
+4. `NotifyChatMessage` is called with the bell limited to once (in practice it already is, because `m_TriggerTerminalBell` is a boolean that is consumed in `Process()`).
 
-Luego se borran los tres estados del perfil.
+Then the three states of the profile are deleted.
 
-- Alternativa: vaciar en el mismo `case OfflineSyncNotifyType`. Se descarta porque no deja margen para los eventos atrasados.
+- Alternative: flush in the same `case OfflineSyncNotifyType`. Rejected because it leaves no margin for late events.
 
-### 4. Un preview nuevo durante la retención la prolonga
-Si llega otro `isStarted=true` (reconexión rápida) con la retención activa, se conservan los pendientes, se reinicia `m_OfflineSyncStartTime` y se borra `m_OfflineSyncEndTime`. Un `isStarted=false` sin retención activa se ignora (por ejemplo, un fin sin preview porque no había pendientes).
+### 4. A new preview during retention extends it
+If another `isStarted=true` arrives (fast reconnection) while retention is active, the pending chats are kept, `m_OfflineSyncStartTime` is reset and `m_OfflineSyncEndTime` is cleared. An `isStarted=false` without active retention is ignored (for example, an end without a preview because nothing was pending).
 
-### 5. `events.Disconnected` no cambia nada
-La retención termina por el fin o por el tope de 60 s. No se añade otra señal: el tope basta para que no quede activa para siempre.
+### 5. `events.Disconnected` changes nothing
+Retention ends with the end event or with the 60 s cap. No other signal is added: the cap is enough so that it never stays active forever.
 
 ## Risks / Trade-offs
 
-- [Un mensaje realmente nuevo que llega durante la sincronización notifica unos segundos tarde] → Aceptable: la sincronización suele durar pocos segundos, y la notificación llega igual.
-- [whatsmeow despacha `OfflineSyncCompleted` antes de procesar algún mensaje (goroutine de un nodo que superó el tiempo del handler)] → Margen de 2 s. Si aun así llega tarde, ese mensaje notifica en el momento, como hoy: un caso aislado, no la avalancha.
-- [El teléfono no envía `read-self` porque el chat se marcó como leído sin abrir los mensajes (marcar como leído en la lista)] → En ese caso llega `markChatAsRead` por app state, que nchat no procesa: el chat notificaría. Una sola notificación por chat en vez de una por mensaje. Queda como mejora futura si molesta.
-- [Arranque de nchat: también llega un preview] → La retención se aplica, pero `receivedAfterConnect` sigue filtrando lo antiguo en el vaciado. El resultado es igual que hoy.
+- [A really new message that arrives during the sync notifies a few seconds late] → Acceptable: the sync usually lasts a few seconds, and the notification still arrives.
+- [whatsmeow dispatches `OfflineSyncCompleted` before processing some message (goroutine of a node that exceeded the handler time)] → 2 s margin. If it still arrives late, that message notifies immediately, as today: an isolated case, not an avalanche.
+- [The phone does not send `read-self` because the chat was marked as read without opening the messages (marking as read from the list)] → In that case a `markChatAsRead` arrives through the app state, which nchat does not process: the chat would notify. One notification per chat instead of one per message. Left as a future improvement if it becomes a problem.
+- [nchat startup: a preview also arrives] → Retention applies, but `receivedAfterConnect` still filters old messages at flush. The result is the same as today.
 
 ## Migration Plan
 
-No hay migración: no cambian datos persistidos ni configuración. Para revertir basta con quitar el commit.
+No migration: no persisted data or configuration changes. To revert, just remove the commit.
 
 ## Open Questions
 
-- ¿El margen de 2 s y el tope de 60 s son adecuados con suspensiones largas? Se ajustan como constantes tras probarlo de verdad.
+- Are the 2 s margin and the 60 s cap adequate with long suspensions? They will be adjusted as constants after real testing.

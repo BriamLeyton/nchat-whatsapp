@@ -1,45 +1,45 @@
 ## Why
 
-nchat ya permite fijar chats con `Alt-p` y archivarlos con `Alt-a`, pero:
-- **La sincronización estaba rota:** la copia local del estado `regular_low` de WhatsApp (pins y archivados) quedó corrupta (`mismatching LTHash`), y el snapshot del servidor también. Por eso `Alt-p` fallaba con `409 conflict` y no llegaban los pins ni los archivados del teléfono. Ya está corregido en el commit `3f567a41`.
-- **No hay distinción visual:** la lista no indica qué chats están fijados.
-- **Los archivados son invisibles:** nchat los oculta por completo y descarta sus mensajes nuevos en la UI. Con la sincronización arreglada, son 74 chats que desaparecieron de la lista.
+nchat already lets you pin chats with `Alt-p` and archive them with `Alt-a`, but:
+- **Synchronization was broken:** the local copy of WhatsApp's `regular_low` state (pins and archived) became corrupt (`mismatching LTHash`), and the server snapshot too. Because of that, `Alt-p` failed with `409 conflict` and the pins and archived chats from the phone did not arrive. It is already fixed in commit `3f567a41`.
+- **There is no visual distinction:** the list does not show which chats are pinned.
+- **Archived chats are invisible:** nchat hides them completely and discards their new messages in the UI. With synchronization fixed, there are 74 chats that disappeared from the list.
 
 ## What Changes
 
-- **Recuperación del estado de WhatsApp (hecho):** ante `mismatching LTHash`, nchat hace un resync completo desde el servidor. Si el snapshot del servidor también es inconsistente, pide una copia de recuperación al teléfono, como WhatsApp Web, y reintenta el cambio.
-- **Tres secciones en la lista, en este orden:**
-  - `Fijados`: chats fijados.
-  - `Otros`: chats ni fijados ni archivados.
-  - `Archivados`: chats archivados, ordenados por último mensaje.
+- **WhatsApp state recovery (done):** on `mismatching LTHash`, nchat does a full resync from the server. If the server snapshot is also inconsistent, it asks the phone for a recovery copy, as WhatsApp Web does, and retries the change.
+- **Three sections in the list, in this order:**
+  - `Fijados`: pinned chats.
+  - `Otros`: chats that are neither pinned nor archived.
+  - `Archivados`: archived chats, sorted by last message.
 
-  Cada título se muestra solo si su sección tiene chats. Con solo la sección `Otros`, la lista se ve como hoy, sin títulos.
-- **Secciones colapsables:** `Alt-o` colapsa o expande `Otros` y `Alt-h` hace lo mismo con `Archivados`. Una sección colapsada muestra solo su título, con el número de chats y `*` si alguno tiene no leídos. `Archivados` empieza colapsada. El estado se recuerda entre reinicios.
-- **Chats archivados:**
-  - Se pueden abrir y leer.
-  - Reciben mensajes nuevos en la UI, pero no generan notificación, igual que hoy.
-  - Siguen archivados al recibir mensajes, como en WhatsApp con "Mantener chats archivados".
-  - `Alt-a` mueve un chat entre `Otros` y `Archivados` en vivo.
-- **Configuración:**
-  - `ui.conf`: `list_pinned_header`, `list_others_header`, `list_archived_header`, `list_others_collapsed` y `list_archived_collapsed`.
-  - `key.conf`: `toggle_others` y `toggle_archived`.
+  Each title is shown only if its section has chats. With only the `Otros` section, the list looks as it does today, without titles.
+- **Collapsible sections:** `Alt-o` collapses or expands `Otros`, and `Alt-h` does the same for `Archivados`. A collapsed section shows only its title, with the number of chats and `*` if any has unread messages. `Archivados` starts collapsed. The state is remembered across restarts.
+- **Archived chats:**
+  - They can be opened and read.
+  - They receive new messages in the UI, but do not generate notifications, as today.
+  - They stay archived when receiving messages, as in WhatsApp with "Keep chats archived".
+  - `Alt-a` moves a chat between `Otros` and `Archivados` live.
+- **Configuration:**
+  - `ui.conf`: `list_pinned_header`, `list_others_header`, `list_archived_header`, `list_others_collapsed` and `list_archived_collapsed`.
+  - `key.conf`: `toggle_others` and `toggle_archived`.
   - `color.conf`: `list_color_header`.
 
-Fuera de alcance: fijado solo local, orden manual entre fijados, y el límite de 3 chats fijados de WhatsApp.
+Out of scope: local-only pinning, manual ordering among pinned chats, and WhatsApp's limit of 3 pinned chats.
 
 ## Capabilities
 
 ### New Capabilities
-- `chat-list-pinned-sections`: secciones `Fijados`, `Otros` y `Archivados` en la lista de chats, colapsables, y sincronización confiable de fijados y archivados aunque el estado de WhatsApp se haya corrompido.
+- `chat-list-pinned-sections`: `Fijados`, `Otros` and `Archivados` sections in the chat list, collapsible, and reliable synchronization of pinned and archived chats even when WhatsApp's state has become corrupt.
 
 ### Modified Capabilities
-<!-- No hay specs existentes en openspec/specs/. -->
+<!-- No existing specs in openspec/specs/. -->
 
 ## Impact
 
-- **Go (`lib/wmchat/go/gowm.go`, hecho):** `ResyncAppState`, `RequestAppStateRecovery` y `SendAppStateWithResync`, más el manejo de `events.AppStateSyncError` y de `AppStateSyncComplete` con `Recovery`.
+- **Go (`lib/wmchat/go/gowm.go`, done):** `ResyncAppState`, `RequestAppStateRecovery` and `SendAppStateWithResync`, plus handling of `events.AppStateSyncError` and of `AppStateSyncComplete` with `Recovery`.
 - **UI:**
-  - `src/uimodel.{h,cpp}`: los archivados entran en `m_ChatVec`, orden por sección, estado colapsado, navegación entre chats visibles y teclas nuevas.
-  - `src/uilistview.cpp`: filas de título y omisión de chats colapsados.
-  - `src/uiconfig.cpp`, `src/uikeyconfig.cpp`, `src/uicolorconfig.cpp`: opciones nuevas.
-- Sin cambios de protocolo C++ ni de esquema (`chats2.isArchived` ya existe).
+  - `src/uimodel.{h,cpp}`: archived chats enter `m_ChatVec`, order by section, collapsed state, navigation between visible chats and new keys.
+  - `src/uilistview.cpp`: title rows and omission of collapsed chats.
+  - `src/uiconfig.cpp`, `src/uikeyconfig.cpp`, `src/uicolorconfig.cpp`: new options.
+- No C++ protocol or schema changes (`chats2.isArchived` already exists).
