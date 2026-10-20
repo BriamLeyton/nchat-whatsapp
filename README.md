@@ -1,17 +1,104 @@
-nchat
-=====
+nchat-whatsapp
+==============
 
-| **Linux** | **Mac** |
-|-----------|---------|
-| [![Linux](https://github.com/d99kris/nchat/workflows/Linux/badge.svg)](https://github.com/d99kris/nchat/actions?query=workflow%3ALinux) | [![macOS](https://github.com/d99kris/nchat/workflows/macOS/badge.svg)](https://github.com/d99kris/nchat/actions?query=workflow%3AmacOS) |
+A WhatsApp-focused fork of [nchat](https://github.com/d99kris/nchat), the
+terminal-based multi-protocol messaging client by
+[Kristofer Berggren](https://github.com/d99kris). This fork adds inline
+images, media and link previews, WhatsApp-style delivery ticks, Status
+Updates, locked chats and many other WhatsApp features on top of nchat.
+
+> [!NOTE]
+> This is an unofficial, independently maintained fork. It is not affiliated
+> with or endorsed by the nchat project, WhatsApp or Meta. Please do not
+> report issues with this fork's features to the upstream nchat project.
 
 nchat is a terminal-based multi-protocol messaging client for Linux and macOS
-with support for Telegram, WhatsApp and Signal.
+with support for Telegram, WhatsApp and Signal. This fork keeps all of
+upstream nchat and regularly merges its changes, but its additions are
+WhatsApp-specific and only developed and tested with WhatsApp (see
+[Supported Platforms](#supported-platforms)).
 
 ![screenshot nchat](/doc/screenshot-nchat.png)
 
-Features
---------
+*Screenshot of upstream nchat.*
+
+
+Fork Additions
+--------------
+Everything below is new in this fork compared to upstream nchat. The
+configuration options are described under [Configuration](#configuration),
+and the design of each change is documented in [openspec/changes](/openspec/changes).
+
+**Images and media**
+- Inline images, stickers, video poster frames and profile photos in
+  terminals supporting the kitty graphics protocol (e.g. kitty, Ghostty),
+  with a fallback to the attachment line in other terminals
+  (`inline_images_enabled`, `inline_image_max_height`)
+- Media previews from data embedded in messages: video thumbnail, duration
+  and size (`▶ 1:15 · 4.2 MB`), voice note and audio duration, and
+  thumbnails of images not downloaded yet
+- Duration and size probed locally for older media lacking that data
+  (`media_probe_command`, `video_thumbnail_command`)
+- Attachment icons by file type: `📷` image, `🎬` video, `🎵` audio,
+  `🎤` voice note, `📕` PDF, `📄` document, `📊` spreadsheet, `📦` archive
+  (`attachment_type_icons_enabled`, `attachment_indicator_*`)
+- Location and live location messages shown as text with a map link
+
+**Links**
+- Link previews with title, description and thumbnail, also fetched from the
+  web page for links without an embedded preview, with privacy levels
+  (`link_preview_fetch`, `link_preview_indicator`)
+- Open a chat by phone number or WhatsApp link (`wa.me`,
+  `api.whatsapp.com/send`, `whatsapp://send`) from the Alt-n contact search,
+  with the link text placed in the message input
+
+**Messages**
+- WhatsApp-style delivery ticks for sent messages: sent `✓`, delivered `✓✓`
+  and read `✓✓` in blue; in groups once all participants delivered or read
+- Message selection moves like a list: the history stays put and only
+  scrolls when the selection passes its edges
+
+**Chat list**
+- Pinned, Others and Archived sections, with Alt-o and Alt-h to collapse
+  and expand Others and Archived
+- Chat banner with profile photo, name, phone number, presence and number of
+  recent status updates (`chat_banner_enabled`)
+- WhatsApp locked chats (Chat Lock): hidden from the chat list, search and
+  notifications, shown with Alt-l after entering the WhatsApp secret code
+
+**Status Updates**
+- Status Updates shown as a styled row first in the chat list
+- Filter status updates by contact with Alt-u, also from a contact's chat
+- Reply to a status update privately to its author, quoting the status
+- Status updates marked as viewed only when opened, with an indicator for
+  new ones (`status_new_indicator`)
+- Expired status updates (older than 24 hours) kept local only: no read
+  receipts, downloads or reactions are sent to WhatsApp, and sending to
+  Status Updates is blocked
+- Prefetch of current status updates and optional cleanup of old status
+  videos (`status_prefetch`, `status_prefetch_video_max_mb`,
+  `status_video_retention_days`)
+
+**Notifications and help**
+- Notifications of messages received while offline (e.g. after suspend) are
+  held until WhatsApp finishes syncing, so messages already read on another
+  device do not notify
+- Help dialog with all commands and readable key names (Ctrl-g)
+
+**WhatsApp sync fixes**
+- Recovery of corrupted WhatsApp app state, so that pinned and archived
+  chats sync again, with a notice when pinning a chat fails
+
+**Optional runtime tools**
+
+Some of the features above use these external tools, configurable with the
+`*_command` options: `ffprobe` (media duration), `ffmpeg` (link preview
+thumbnails), `ffmpegthumbnailer` (video poster frames) and `curl` (link
+previews).
+
+
+Upstream Features
+-----------------
 - Send and receive markdown formatted messages
 - Reply, delete, edit and forward messages
 - Mention users in group chats
@@ -125,15 +212,28 @@ draft.
 
 Supported Platforms
 ===================
-nchat is developed and tested on Linux and macOS. Current version has been
-tested on:
+Upstream nchat is developed and tested on Linux and macOS. Upstream releases
+have been tested on:
 
 - macOS Sequoia 15.5
 - Ubuntu 24.04 LTS
 
+The additions of this fork are developed and tested only on:
+
+- Linux (Arch-based) with the Ghostty terminal
+- WhatsApp (the Telegram and Signal code is unchanged from upstream, but not
+  tested in this fork)
+
+macOS and other terminals are expected to work, but are not tested. Inline
+images require a terminal supporting the kitty graphics protocol.
+
 
 Install using Package Manager
 =============================
+**Note:** the package manager packages and pre-built binaries below install
+upstream nchat, without the additions of this fork. To use this fork,
+[build it from source](#build-from-source).
+
 
 macOS
 -----
@@ -191,7 +291,7 @@ prepared for a relatively long first build time.
 
 **Get Source**
 
-    git clone https://github.com/d99kris/nchat && cd nchat
+    git clone https://github.com/BriamLeyton/nchat-whatsapp && cd nchat-whatsapp
 
 Using make.sh script
 --------------------
@@ -220,27 +320,27 @@ Manually
 
 macOS
 
-    brew install gperf cmake openssl ncurses ccache readline help2man sqlite libmagic go
+    brew install gperf cmake openssl ncurses ccache readline help2man sqlite libmagic go webp pkg-config
 
 Arch
 
-    sudo pacman -S ccache cmake file go gperf help2man ncurses openssl readline sqlite zlib base-devel
+    sudo pacman -S ccache cmake file go gperf help2man ncurses openssl readline sqlite zlib base-devel libwebp pkgconf
 
 Debian-based (Ubuntu, Raspbian, etc)
 
-    sudo apt install ccache cmake build-essential gperf help2man libreadline-dev libssl-dev libncurses-dev libncursesw5-dev ncurses-doc zlib1g-dev libsqlite3-dev libmagic-dev golang
+    sudo apt install ccache cmake build-essential gperf help2man libreadline-dev libssl-dev libncurses-dev libncursesw5-dev ncurses-doc zlib1g-dev libsqlite3-dev libmagic-dev golang libwebp-dev pkg-config
 
 Fedora
 
-    sudo dnf install git cmake clang golang ccache file-devel file-libs gperf readline-devel openssl-devel ncurses-devel sqlite-devel zlib-devel
+    sudo dnf install git cmake clang golang ccache file-devel file-libs gperf readline-devel openssl-devel ncurses-devel sqlite-devel zlib-devel libwebp-devel pkgconf-pkg-config
 
 Gentoo
 
-    sudo emerge -n dev-util/cmake dev-util/ccache dev-util/gperf sys-apps/help2man sys-libs/readline dev-libs/openssl sys-libs/ncurses sys-libs/zlib dev-db/sqlite sys-apps/file dev-lang/go
+    sudo emerge -n dev-util/cmake dev-util/ccache dev-util/gperf sys-apps/help2man sys-libs/readline dev-libs/openssl sys-libs/ncurses sys-libs/zlib dev-db/sqlite sys-apps/file dev-lang/go media-libs/libwebp dev-util/pkgconf
 
 Void
 
-    sudo xbps-install base-devel go ccache cmake gperf help2man libmagick-devel readline-devel sqlite-devel file-devel openssl-devel
+    sudo xbps-install base-devel go ccache cmake gperf help2man libmagick-devel readline-devel sqlite-devel file-devel openssl-devel libwebp-devel pkg-config
 
 **Extra Dependencies**
 
@@ -318,7 +418,22 @@ Refer to [Debugging](/doc/DEBUGGING.md) for details.
 Telegram Group
 ==============
 A Telegram group [https://t.me/nchatusers](https://t.me/nchatusers) is
-available for users to discuss nchat usage and related topics.
+available for users to discuss upstream nchat usage and related topics. It is
+not meant for questions about this fork's additions.
+
+
+Syncing with Upstream
+=====================
+This fork regularly merges upstream nchat to get its new features, fixes and
+updated protocol libraries. With a clone of this fork:
+
+    git remote add upstream https://github.com/d99kris/nchat.git
+    git fetch upstream
+    git merge upstream/master
+
+Changes to the vendored WhatsApp library are kept in
+`lib/wmchat/go/ext/nchat-whatsmeow.patch`, so they are reapplied when
+upstream updates whatsmeow.
 
 
 Security
@@ -1666,7 +1781,11 @@ to update to latest (or a specific) version of these libraries. Example usages:
 
 License
 =======
-Source is distributed under the [MIT license](/LICENSE).
+Source is distributed under the [MIT license](/LICENSE), as upstream nchat.
+nchat is Copyright (c) Kristofer Berggren. The additions of this fork are
+Copyright (c) Briam Leyton and distributed under the same license. The vendored
+[stb](https://github.com/nothings/stb) image libraries in `ext/stb` are
+public domain or MIT licensed.
 
 Binaries are distributed under the [GNU AGPL v3 license](/LICENSE.AGPL-3.0),
 or the [GNU GPL v3 license](/LICENSE.GPL-3.0) if Signal support is disabled.

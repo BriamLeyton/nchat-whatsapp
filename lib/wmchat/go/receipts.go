@@ -1,6 +1,6 @@
 // receipts.go
 //
-// Copyright (c) 2021-2026 Kristofer Berggren
+// Copyright (c) 2026 Briam Leyton
 // All rights reserved.
 //
 // nchat is distributed under the MIT license, see LICENSE for details.

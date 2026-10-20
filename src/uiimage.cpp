@@ -1,6 +1,6 @@
 // uiimage.cpp
 //
-// Copyright (c) 2019-2026 Kristofer Berggren
+// Copyright (c) 2026 Briam Leyton
 // All rights reserved.
 //
 // nchat is distributed under the MIT license, see LICENSE for details.
