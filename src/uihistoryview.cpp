@@ -7,6 +7,8 @@
 
 #include "uihistoryview.h"
 
+#include <map>
+
 #include "appconfig.h"
 #include "apputil.h"
 #include "fileutil.h"
@@ -76,6 +78,35 @@ void UiHistoryView::Draw()
 
   static std::wstring attachmentIndicator =
     StrUtil::ToWString(UiConfig::GetStr("attachment_indicator") + " ");
+  static const bool attachmentTypeIconsEnabled = UiConfig::GetBool("attachment_type_icons_enabled");
+  static const std::map<FileCategory, std::wstring> attachmentTypeIndicators = []()
+  {
+    const std::map<FileCategory, std::string> keys =
+    {
+      { FileCategoryImage, "attachment_indicator_image" },
+      { FileCategoryVideo, "attachment_indicator_video" },
+      { FileCategoryAudio, "attachment_indicator_audio" },
+      { FileCategoryPdf, "attachment_indicator_pdf" },
+      { FileCategoryDocument, "attachment_indicator_document" },
+      { FileCategorySpreadsheet, "attachment_indicator_spreadsheet" },
+      { FileCategoryArchive, "attachment_indicator_archive" },
+    };
+
+    // empty icon falls back to generic attachment indicator
+    std::map<FileCategory, std::wstring> indicators;
+    for (const auto& key : keys)
+    {
+      const std::string icon = UiConfig::GetStr(key.second);
+      indicators[key.first] = icon.empty() ? attachmentIndicator : StrUtil::ToWString(icon + " ");
+    }
+
+    return indicators;
+  }();
+  static const std::wstring attachmentVoiceIndicator = []()
+  {
+    const std::string icon = UiConfig::GetStr("attachment_indicator_voice");
+    return icon.empty() ? attachmentIndicator : StrUtil::ToWString(icon + " ");
+  }();
   static std::wstring quoteIndicator = L"> ";
 
   std::pair<std::string, std::string>& currentChat = m_Model->GetCurrentChatLocked();
@@ -254,6 +285,7 @@ void UiHistoryView::Draw()
       }
 
       // File attachment
+      bool hasAttachmentLine = false; // attachment line is always first in wlines
       int imageLineIndex = -1; // index in wlines of first inline image row
       UiImageInfo imageInfo;
       if (!msg.fileInfo.empty())
@@ -323,12 +355,15 @@ void UiHistoryView::Draw()
         }
 
         // Video / audio duration and size, ex: " ▶ 1:15 · 4.2 MB" or " 🎤 0:42"
+        // (voice note mic omitted when already shown as attachment type icon)
+        const bool isPtt = (meta != nullptr) && meta->isPtt;
         std::string mediaStr;
         if ((meta != nullptr) && !isImageFile)
         {
           if (meta->isPtt && (meta->seconds > 0))
           {
-            mediaStr = " \xf0\x9f\x8e\xa4 " + MediaInfo::FormatDuration(meta->seconds);
+            static const std::string pttPrefix = attachmentTypeIconsEnabled ? " " : " \xf0\x9f\x8e\xa4 ";
+            mediaStr = pttPrefix + MediaInfo::FormatDuration(meta->seconds);
           }
           else if ((meta->seconds > 0) || (meta->fileLength > 0))
           {
@@ -350,8 +385,24 @@ void UiHistoryView::Draw()
           }
         }
 
-        std::wstring fileStr = attachmentIndicator + StrUtil::ToWString(fileName + fileStatus + mediaStr);
+        std::wstring indicator = attachmentIndicator;
+        if (attachmentTypeIconsEnabled)
+        {
+          auto typeIt = attachmentTypeIndicators.find(FileUtil::GetFileCategory(fileInfo.filePath));
+          if (isPtt)
+          {
+            indicator = attachmentVoiceIndicator;
+          }
+          else if (typeIt != attachmentTypeIndicators.end())
+          {
+            indicator = typeIt->second;
+          }
+        }
+
+        // nothing may be inserted before the attachment line after this, see hasAttachmentLine
+        std::wstring fileStr = indicator + StrUtil::ToWString(fileName + fileStatus + mediaStr);
         wlines.insert(wlines.begin(), fileStr);
+        hasAttachmentLine = true;
 
         // Inline image: downloaded image, video poster frame, or embedded thumbnail when not downloaded
         std::string inlinePath;
@@ -390,7 +441,15 @@ void UiHistoryView::Draw()
       if ((meta != nullptr) && msg.fileInfo.empty() && (!meta->title.empty() || !meta->description.empty()))
       {
         static const std::wstring previewIndicator = L"\u258f ";
+        static const std::wstring linkIndicator = []()
+        {
+          const std::string icon = UiConfig::GetStr("link_preview_indicator");
+          return icon.empty() ? std::wstring() : StrUtil::ToWString(icon + " ");
+        }();
+        static const int linkIndicatorW = StrUtil::WStringWidth(linkIndicator);
         const int previewW = std::max(m_PaddedW - 2, 1);
+        // link icon on first preview line only (title, or first description line if no title)
+        const int firstLineW = std::max(previewW - linkIndicatorW, 1);
         auto previewStr = [&](const std::string& p_Str)
         {
           std::string str = p_Str;
@@ -407,26 +466,29 @@ void UiHistoryView::Draw()
         if (!meta->title.empty())
         {
           previewHasTitle = true;
-          wlines.push_back(previewIndicator + StrUtil::TrimPadWString(previewStr(meta->title), previewW));
+          wlines.push_back(previewIndicator + linkIndicator +
+                           StrUtil::TrimPadWString(previewStr(meta->title), firstLineW));
         }
 
         if (!meta->description.empty())
         {
           static const int maxDescLines = 2;
+          const int descW = previewHasTitle ? previewW : firstLineW;
           std::vector<std::wstring> descLines =
-            StrUtil::WordWrap(previewStr(meta->description), previewW, false, false, false, 2);
+            StrUtil::WordWrap(previewStr(meta->description), descW, false, false, false, 2);
           if ((int)descLines.size() > maxDescLines)
           {
             descLines.resize(maxDescLines);
             std::wstring& lastLine = descLines.back();
-            lastLine = StrUtil::TrimPadWString(lastLine, previewW - 1);
+            lastLine = StrUtil::TrimPadWString(lastLine, descW - 1);
             lastLine.erase(lastLine.find_last_not_of(L' ') + 1);
             lastLine += L"\u2026";
           }
 
-          for (const auto& descLine : descLines)
+          for (size_t i = 0; i < descLines.size(); ++i)
           {
-            wlines.push_back(previewIndicator + descLine);
+            const bool isFirstLine = !previewHasTitle && (i == 0);
+            wlines.push_back(previewIndicator + (isFirstLine ? linkIndicator : std::wstring()) + descLines[i]);
           }
         }
 
@@ -555,6 +617,7 @@ void UiHistoryView::Draw()
 
         wlines.resize(std::max(maxMessageLines - 1, 0));
         wlines.push_back(L"[...]");
+        hasAttachmentLine = hasAttachmentLine && (wlines.size() > 1);
         reactionLines = 0;
       }
 
@@ -570,7 +633,7 @@ void UiHistoryView::Draw()
           ++imageVisibleRows;
         }
 
-        bool isAttachment = (wline->rfind(attachmentIndicator, 0) == 0);
+        bool isAttachment = hasAttachmentLine && (lineIndex == 0);
         bool isQuote = (wline->rfind(quoteIndicator, 0) == 0);
         bool isReaction = (reactionLines == 1) && (std::distance(wline, wlines.rbegin()) == 0);
         bool isPreview = (lineIndex >= previewLineIndex) && (lineIndex < previewLineEnd);

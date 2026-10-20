@@ -19,7 +19,16 @@ void UiConfig::Init()
   const std::map<std::string, std::string> defaultConfig =
   {
     { "attachment_indicator", "\xF0\x9F\x93\x8E" },
+    { "attachment_indicator_archive", "\xF0\x9F\x93\xA6" },
+    { "attachment_indicator_audio", "\xF0\x9F\x8E\xB5" },
+    { "attachment_indicator_document", "\xF0\x9F\x93\x84" },
+    { "attachment_indicator_image", "\xF0\x9F\x93\xB7" },
+    { "attachment_indicator_pdf", "\xF0\x9F\x93\x95" },
+    { "attachment_indicator_spreadsheet", "\xF0\x9F\x93\x8A" },
+    { "attachment_indicator_video", "\xF0\x9F\x8E\xAC" },
+    { "attachment_indicator_voice", "\xF0\x9F\x8E\xA4" },
     { "attachment_open_command", "" },
+    { "attachment_type_icons_enabled", "1" },
     { "auto_compose_command", "" },
     { "auto_compose_enabled", "0" },
     { "auto_compose_history_count", "25" },
@@ -53,6 +62,7 @@ void UiConfig::Init()
     { "linefeed_on_enter", "1" },
     { "link_open_command", "" },
     { "link_preview_fetch", "2" },
+    { "link_preview_indicator", "\xF0\x9F\x8C\x90" },
     { "link_preview_command",
       "curl -s -L -m 8 --max-redirs 5 --compressed --proto =http,https --proto-redir =http,https "
       "-A 'facebookexternalhit/1.1' '%1' </dev/null 2>/dev/null" },

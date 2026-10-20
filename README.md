@@ -480,7 +480,16 @@ be used for debugging startup crash / hang regressions.
 This configuration file holds general user interface settings. Default content:
 
     attachment_indicator=📎
+    attachment_indicator_archive=📦
+    attachment_indicator_audio=🎵
+    attachment_indicator_document=📄
+    attachment_indicator_image=📷
+    attachment_indicator_pdf=📕
+    attachment_indicator_spreadsheet=📊
+    attachment_indicator_video=🎬
+    attachment_indicator_voice=🎤
     attachment_open_command=
+    attachment_type_icons_enabled=1
     away_status_indication=0
     auto_compose_command=
     auto_compose_enabled=0
@@ -515,6 +524,7 @@ This configuration file holds general user interface settings. Default content:
     link_open_command=
     link_preview_command=curl -s -L -m 8 --max-redirs 5 --compressed --proto =http,https --proto-redir =http,https -A 'facebookexternalhit/1.1' '%1' </dev/null 2>/dev/null
     link_preview_fetch=2
+    link_preview_indicator=🌐
     link_thumbnail_command=ffmpeg -nostdin -y -v error -protocol_whitelist http,https,tcp,tls -rw_timeout 8000000 -user_agent 'facebookexternalhit/1.1' -i '%1' -vf "scale='min(320,iw)':-2" -frames:v 1 '%2' >/dev/null 2>&1
     list_enabled=1
     list_width=14
@@ -559,6 +569,16 @@ This configuration file holds general user interface settings. Default content:
 ### attachment_indicator
 
 Specifies text to prefix attachment filenames in message view.
+Used for all attachments when `attachment_type_icons_enabled=0`, and
+otherwise for file types not covered by `attachment_indicator_*`.
+
+### attachment_indicator_archive, attachment_indicator_audio, attachment_indicator_document, attachment_indicator_image, attachment_indicator_pdf, attachment_indicator_spreadsheet, attachment_indicator_video, attachment_indicator_voice
+
+Specify text to prefix attachment filenames of each file type in message
+view, when `attachment_type_icons_enabled=1`. The type is determined by
+the file extension (case-insensitive), except voice notes which are always
+shown with `attachment_indicator_voice`. An empty value falls back to
+`attachment_indicator`.
 
 ### attachment_open_command
 
@@ -572,6 +592,12 @@ macOS: `open '%1' &`
 
 Note: Omit the trailing `&` for commands taking over the terminal, for
 example `w3m -o confirm_qq=false '%1'` and `see '%1'`.
+
+### attachment_type_icons_enabled
+
+Specifies whether to prefix attachment filenames in message view with an
+icon based on the file type (`attachment_indicator_*`), instead of
+`attachment_indicator` for all attachments.
 
 ### away_status_indication
 
@@ -824,6 +850,11 @@ could thereby confirm to a spammer that the number is active. The official
 WhatsApp apps do not have this exposure, as the sender generates the preview.
 Saved contacts are determined from the address book names synced from
 WhatsApp, written to `<profile>/saved_contacts` on connect.
+
+### link_preview_indicator
+
+Specifies text to prefix the first line of a link preview (the title, or the
+description if there is no title) in message view. Empty for no icon.
 
 ### link_thumbnail_command
 

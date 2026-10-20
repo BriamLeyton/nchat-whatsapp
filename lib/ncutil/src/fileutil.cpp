@@ -9,6 +9,7 @@
 
 #include <climits>
 #include <fstream>
+#include <map>
 
 #include <fnmatch.h>
 #if defined(__OpenBSD__)
@@ -201,6 +202,38 @@ std::string FileUtil::GetDownloadsDir()
   }
 
   return homeDir;
+}
+
+FileCategory FileUtil::GetFileCategory(const std::string& p_Path)
+{
+  static const std::map<std::string, FileCategory> categories =
+  {
+    { "jpg", FileCategoryImage }, { "jpeg", FileCategoryImage }, { "png", FileCategoryImage },
+    { "webp", FileCategoryImage }, { "gif", FileCategoryImage }, { "heic", FileCategoryImage },
+    { "heif", FileCategoryImage }, { "bmp", FileCategoryImage },
+    { "mp4", FileCategoryVideo }, { "f4v", FileCategoryVideo }, { "m4v", FileCategoryVideo },
+    { "mov", FileCategoryVideo }, { "webm", FileCategoryVideo }, { "3gp", FileCategoryVideo },
+    { "mkv", FileCategoryVideo }, { "avi", FileCategoryVideo },
+    { "oga", FileCategoryAudio }, { "ogg", FileCategoryAudio }, { "opus", FileCategoryAudio },
+    { "mp3", FileCategoryAudio }, { "m4a", FileCategoryAudio }, { "aac", FileCategoryAudio },
+    { "wav", FileCategoryAudio }, { "amr", FileCategoryAudio }, { "flac", FileCategoryAudio },
+    { "pdf", FileCategoryPdf },
+    { "doc", FileCategoryDocument }, { "docx", FileCategoryDocument }, { "odt", FileCategoryDocument },
+    { "rtf", FileCategoryDocument }, { "txt", FileCategoryDocument }, { "md", FileCategoryDocument },
+    { "ppt", FileCategoryDocument }, { "pptx", FileCategoryDocument }, { "odp", FileCategoryDocument },
+    { "xls", FileCategorySpreadsheet }, { "xlsx", FileCategorySpreadsheet },
+    { "ods", FileCategorySpreadsheet }, { "csv", FileCategorySpreadsheet },
+    { "zip", FileCategoryArchive }, { "rar", FileCategoryArchive }, { "7z", FileCategoryArchive },
+    { "tar", FileCategoryArchive }, { "gz", FileCategoryArchive }, { "tgz", FileCategoryArchive },
+    { "bz2", FileCategoryArchive }, { "xz", FileCategoryArchive },
+  };
+
+  // extension of base name only, so a period in a directory name is not taken as extension
+  const std::string ext = GetFileExt(BaseName(p_Path));
+  if (ext.size() < 2) return FileCategoryOther;
+
+  auto it = categories.find(StrUtil::ToLower(ext.substr(1)));
+  return (it != categories.end()) ? it->second : FileCategoryOther;
 }
 
 std::string FileUtil::GetFileExt(const std::string& p_Path)
