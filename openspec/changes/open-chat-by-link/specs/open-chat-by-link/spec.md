@@ -20,7 +20,7 @@ Cuando el filtro del diálogo de contactos contiene un link de WhatsApp (`wa.me`
 - **THEN** no aparece la fila y la lista filtra contactos como antes
 
 ### Requirement: Abrir o crear el chat
-Al elegir la fila, si existe un chat con ese número SHALL abrirse (desarchivándolo si estaba archivado) sin consultar a WhatsApp. Si no existe, nchat SHALL consultar una sola vez si el número está registrado; si lo está, SHALL crear y abrir el chat con el JID que devuelve WhatsApp. Si no está registrado SHALL mostrar "+<número> is not on WhatsApp.". Sin conexión SHALL mostrar "Not connected, please try again later." y MUST NOT consultar. La consulta MUST NOT hacerse mientras el usuario escribe en el filtro.
+Al elegir la fila, si existe un chat con ese número SHALL abrirse (desarchivándolo si estaba archivado) sin consultar a WhatsApp. Si no existe, nchat SHALL consultar una sola vez si el número está registrado; si lo está, SHALL crear y abrir el chat con el número que devuelve WhatsApp (`<número>@s.whatsapp.net`), nunca con su LID, para que los mensajes enviados y recibidos queden en ese mismo chat. Si no está registrado SHALL mostrar "+<número> is not on WhatsApp.". Sin conexión SHALL mostrar "Not connected, please try again later." y MUST NOT consultar. La consulta MUST NOT hacerse mientras el usuario escribe en el filtro.
 
 #### Scenario: Chat existente
 - **WHEN** el usuario elige la fila de un número con chat
@@ -29,6 +29,10 @@ Al elegir la fila, si existe un chat con ese número SHALL abrirse (desarchiván
 #### Scenario: Número nuevo registrado
 - **WHEN** el usuario elige la fila de un número sin chat que está en WhatsApp
 - **THEN** se crea el chat y queda abierto
+
+#### Scenario: Primer mensaje a un número nuevo
+- **WHEN** el usuario crea el chat de un número nuevo y envía un mensaje
+- **THEN** el mensaje aparece en ese chat, que sube al inicio de su sección y sigue seleccionado, sin crear un segundo chat
 
 #### Scenario: Número no registrado
 - **WHEN** el número no está en WhatsApp

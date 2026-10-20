@@ -26,7 +26,7 @@
 - `CreateChatRequest` gana `phone`. Con `phone` vacío se mantiene el comportamiento actual (contacto conocido).
 - Con `phone`: `CWmCreateChat(connId, phone)`. En Go, en una goroutine:
   - `IsOnWhatsApp(ctx, ["+" + phone])` con timeout de 10 s;
-  - `IsIn`: `WmCreateChatNotify(connId, jid, phone, 0)`;
+  - `IsIn`: `WmCreateChatNotify(connId, chatId, phone, 0)`. `chatId` es `PhoneNumber` de la respuesta (`<número>@s.whatsapp.net`), o el JID pasado por `GetChatId` si no viene. `IsOnWhatsApp` suele devolver como `JID` el LID (`@lid`); si el chat se creara con él, los mensajes (que `GetChatId` convierte a número) caerían en otro chat, y la selección se quedaría en el chat vacío;
   - no registrado: `WmCreateChatNotify(connId, "", phone, 1)`; error: `-1`.
 - `CreateChatNotify` gana `phone` y `result` (0 ok, 1 no registrado, -1 error). `success` sigue siendo `result == 0`.
 

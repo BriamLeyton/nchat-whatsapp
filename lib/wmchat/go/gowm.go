@@ -3760,8 +3760,16 @@ func WmCreateChat(connId int, phone string) int {
 
 		for _, resp := range resps {
 			if resp.IsIn {
-				LOG_DEBUG("create chat " + phone + " is " + resp.JID.ToNonAD().String())
-				CWmCreateChatNotify(connId, resp.JID.ToNonAD().String(), phone, createChatResultOk)
+				// chats are phone number based, use it rather than the canonical (often lid) jid,
+				// otherwise sent and received messages (mapped to phone number) land in another chat
+				jid := resp.JID.ToNonAD()
+				chatId := GetChatId(client, &jid, nil)
+				if !resp.PhoneNumber.IsEmpty() {
+					chatId = resp.PhoneNumber.ToNonAD().String()
+				}
+
+				LOG_DEBUG("create chat " + phone + " is " + jid.String() + " chat " + chatId)
+				CWmCreateChatNotify(connId, chatId, phone, createChatResultOk)
 				return
 			}
 		}
