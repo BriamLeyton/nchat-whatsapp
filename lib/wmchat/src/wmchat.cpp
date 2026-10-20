@@ -1307,6 +1307,21 @@ void WmCheckSecretCodeNotify(int p_ConnId, int p_Result)
   }
 }
 
+void WmOfflineSyncNotify(int p_ConnId, int p_IsStarted)
+{
+  WmChat* instance = WmChat::GetInstance(p_ConnId);
+  if (instance != nullptr)
+  {
+    std::shared_ptr<OfflineSyncNotify> offlineSyncNotify =
+      std::make_shared<OfflineSyncNotify>(instance->GetProfileId());
+    offlineSyncNotify->isStarted = p_IsStarted;
+
+    std::shared_ptr<DeferNotifyRequest> deferNotifyRequest = std::make_shared<DeferNotifyRequest>();
+    deferNotifyRequest->serviceMessage = offlineSyncNotify;
+    instance->SendRequest(deferNotifyRequest);
+  }
+}
+
 void WmCreateChatNotify(int p_ConnId, char* p_ChatId, char* p_Phone, int p_Result)
 {
   WmChat* instance = WmChat::GetInstance(p_ConnId);

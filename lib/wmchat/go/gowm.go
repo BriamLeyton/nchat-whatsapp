@@ -967,8 +967,15 @@ func (handler *WmEventHandler) HandleEvent(rawEvt interface{}) {
 	case *events.JoinedGroup:
 		LOG_TRACE(fmt.Sprintf("%#v", evt))
 
+	case *events.OfflineSyncPreview:
+		// server will send events missed during downtime, ui holds notifications until completed
+		LOG_TRACE(fmt.Sprintf("offline sync preview total %d messages %d receipts %d", evt.Total, evt.Messages,
+			evt.Receipts))
+		CWmOfflineSyncNotify(handler.connId, 1)
+
 	case *events.OfflineSyncCompleted:
 		LOG_TRACE(fmt.Sprintf("%#v", evt))
+		CWmOfflineSyncNotify(handler.connId, 0)
 		handler.HandleSyncContacts()
 
 	case *events.GroupInfo:

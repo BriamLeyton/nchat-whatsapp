@@ -132,6 +132,7 @@ enum MessageType
   NewAvatarNotifyType,
   UpdateLockedNotifyType,
   CheckSecretCodeNotifyType,
+  OfflineSyncNotifyType,
 };
 
 struct ContactInfo
@@ -745,6 +746,15 @@ public:
     : ServiceMessage(p_ProfileId) { }
   virtual MessageType GetMessageType() const { return CheckSecretCodeNotifyType; }
   int result = SecretCodeResultWrong;
+};
+
+class OfflineSyncNotify : public ServiceMessage
+{
+public:
+  explicit OfflineSyncNotify(const std::string& p_ProfileId)
+    : ServiceMessage(p_ProfileId) { }
+  virtual MessageType GetMessageType() const { return OfflineSyncNotifyType; }
+  bool isStarted = false; // true when pending offline events start, false when completed
 };
 
 class MoveChatNotify : public ServiceMessage

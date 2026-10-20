@@ -27,6 +27,7 @@ package main
 // extern void WmCreateChatNotify(int p_ConnId, char* p_ChatId, char* p_Phone, int p_Result);
 // extern void WmUpdateLockedNotify(int p_ConnId, char* p_ChatId, int p_IsLocked);
 // extern void WmCheckSecretCodeNotify(int p_ConnId, int p_Result);
+// extern void WmOfflineSyncNotify(int p_ConnId, int p_IsStarted);
 // extern void WmUpdatePinNotify(int p_ConnId, char* p_ChatId, int p_IsPinned, int p_TimePinned);
 // extern void WmReinit(int p_ConnId);
 // extern void WmSetProtocolUiControl(int p_ConnId, int p_IsTakeControl);
@@ -219,6 +220,10 @@ func CWmUpdateLockedNotify(connId int, chatId string, isLocked int) {
 
 func CWmCheckSecretCodeNotify(connId int, result int) {
 	C.WmCheckSecretCodeNotify(C.int(connId), C.int(result))
+}
+
+func CWmOfflineSyncNotify(connId int, isStarted int) {
+	C.WmOfflineSyncNotify(C.int(connId), C.int(isStarted))
 }
 
 func CWmCreateChatNotify(connId int, chatId string, phone string, result int) {

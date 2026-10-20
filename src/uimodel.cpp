@@ -2938,6 +2938,26 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
       }
       break;
 
+    case OfflineSyncNotifyType:
+      {
+        std::shared_ptr<OfflineSyncNotify> offlineSyncNotify =
+          std::static_pointer_cast<OfflineSyncNotify>(p_ServiceMessage);
+        if (offlineSyncNotify->isStarted)
+        {
+          // new start (or quick reconnect) keeps pending chats and restarts the max hold time
+          m_OfflineSyncStartTime[profileId] = TimeUtil::GetCurrentTimeMSec();
+          m_OfflineSyncEndTime.erase(profileId);
+          LOG_DEBUG("offline sync started, holding notifications");
+        }
+        else if (m_OfflineSyncStartTime.count(profileId) > 0)
+        {
+          m_OfflineSyncEndTime[profileId] = TimeUtil::GetCurrentTimeMSec();
+          LOG_DEBUG("offline sync completed, pending chats %d",
+                    (int)m_OfflineSyncPendingChats[profileId].size());
+        }
+      }
+      break;
+
     case CheckSecretCodeNotifyType:
       {
         std::shared_ptr<CheckSecretCodeNotify> checkSecretCodeNotify =
@@ -3320,6 +3340,7 @@ void UiModel::Impl::ProcessTimers()
 
     StartStatusVideoCleanup();
     ProcessStatusPrefetch();
+    ProcessOfflineSyncFlush();
 
     static const int autoSelectChatTimeoutSec = UiConfig::GetNum("auto_select_chat_timeout_sec");
     if (!IsCurrentChatSet() && (autoSelectChatTimeoutSec != 0) && (m_LastSyncMessageTime != 0))
@@ -3502,48 +3523,122 @@ void UiModel::Impl::UpdateChatInfoIsUnread(const std::string& p_ProfileId, const
           (chatMessage.timeSent > m_ConnectTime[p_ProfileId]);
         if (receivedAfterConnect)
         {
-          static const bool terminalBellActive = UiConfig::GetBool("terminal_bell_active");
-          static const bool terminalBellInactive = UiConfig::GetBool("terminal_bell_inactive");
-          bool terminalBell = m_TerminalActive ? terminalBellActive : terminalBellInactive;
-          if (terminalBell)
+          if (m_OfflineSyncStartTime.count(p_ProfileId) > 0)
           {
-            m_TriggerTerminalBell = true;
-          }
-
-          bool desktopNotify = false;
-          if (m_TerminalActive)
-          {
-            const bool isCurrentChat = IsCurrentChat(p_ProfileId, p_ChatId);
-            if (isCurrentChat)
-            {
-              static const bool desktopNotifyActiveCurrent = UiConfig::GetBool("desktop_notify_active_current");
-              desktopNotify = desktopNotifyActiveCurrent;
-            }
-            else
-            {
-              static const bool desktopNotifyActiveNoncurrent = UiConfig::GetBool("desktop_notify_active_noncurrent");
-              desktopNotify = desktopNotifyActiveNoncurrent;
-            }
+            // hold until offline sync completes, the message may already be read on another device
+            m_OfflineSyncPendingChats[p_ProfileId].insert(p_ChatId);
           }
           else
           {
-            static const bool desktopNotifyInactive = UiConfig::GetBool("desktop_notify_inactive");
-            desktopNotify = desktopNotifyInactive;
-          }
-
-          if (desktopNotify)
-          {
-            const std::string name = ((chatMessage.senderId == p_ChatId)
-              ? GetContactName(p_ProfileId, chatMessage.senderId)
-              : GetContactName(p_ProfileId, p_ChatId) + " - " + GetContactName(p_ProfileId, chatMessage.senderId))
-              + GetProfileSuffix(p_ProfileId);
-            DesktopNotify(name, chatMessage.text);
+            NotifyChatMessage(p_ProfileId, p_ChatId, chatMessage);
           }
         }
       }
     }
 
     profileChatInfos[p_ChatId].isUnread = isUnread;
+  }
+}
+
+void UiModel::Impl::NotifyChatMessage(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                      const ChatMessage& p_ChatMessage)
+{
+  static const bool terminalBellActive = UiConfig::GetBool("terminal_bell_active");
+  static const bool terminalBellInactive = UiConfig::GetBool("terminal_bell_inactive");
+  bool terminalBell = m_TerminalActive ? terminalBellActive : terminalBellInactive;
+  if (terminalBell)
+  {
+    m_TriggerTerminalBell = true;
+  }
+
+  bool desktopNotify = false;
+  if (m_TerminalActive)
+  {
+    const bool isCurrentChat = IsCurrentChat(p_ProfileId, p_ChatId);
+    if (isCurrentChat)
+    {
+      static const bool desktopNotifyActiveCurrent = UiConfig::GetBool("desktop_notify_active_current");
+      desktopNotify = desktopNotifyActiveCurrent;
+    }
+    else
+    {
+      static const bool desktopNotifyActiveNoncurrent = UiConfig::GetBool("desktop_notify_active_noncurrent");
+      desktopNotify = desktopNotifyActiveNoncurrent;
+    }
+  }
+  else
+  {
+    static const bool desktopNotifyInactive = UiConfig::GetBool("desktop_notify_inactive");
+    desktopNotify = desktopNotifyInactive;
+  }
+
+  if (desktopNotify)
+  {
+    const std::string name = ((p_ChatMessage.senderId == p_ChatId)
+      ? GetContactName(p_ProfileId, p_ChatMessage.senderId)
+      : GetContactName(p_ProfileId, p_ChatId) + " - " + GetContactName(p_ProfileId, p_ChatMessage.senderId))
+      + GetProfileSuffix(p_ProfileId);
+    DesktopNotify(name, p_ChatMessage.text);
+  }
+}
+
+void UiModel::Impl::ProcessOfflineSyncFlush()
+{
+  static const int64_t offlineSyncGraceMs = 2 * 1000;
+  static const int64_t offlineSyncMaxMs = 60 * 1000;
+  const int64_t nowTimeMs = TimeUtil::GetCurrentTimeMSec();
+  std::vector<std::string> flushProfileIds;
+  for (const auto& startTime : m_OfflineSyncStartTime)
+  {
+    const std::string& profileId = startTime.first;
+    const bool isCompleted = (m_OfflineSyncEndTime.count(profileId) > 0) &&
+      ((nowTimeMs - m_OfflineSyncEndTime[profileId]) >= offlineSyncGraceMs);
+    const bool isTimedOut = (nowTimeMs - startTime.second) >= offlineSyncMaxMs;
+    if (isCompleted || isTimedOut)
+    {
+      if (!isCompleted)
+      {
+        LOG_WARNING("offline sync not completed within %lld ms", offlineSyncMaxMs);
+      }
+
+      flushProfileIds.push_back(profileId);
+    }
+  }
+
+  static const bool mutedNotifyUnread = UiConfig::GetBool("muted_notify_unread");
+  for (const std::string& profileId : flushProfileIds)
+  {
+    const std::set<std::string> pendingChats = m_OfflineSyncPendingChats[profileId];
+    m_OfflineSyncStartTime.erase(profileId);
+    m_OfflineSyncEndTime.erase(profileId);
+    m_OfflineSyncPendingChats.erase(profileId);
+
+    int notifyCount = 0;
+    for (const std::string& chatId : pendingChats)
+    {
+      std::unordered_map<std::string, ChatInfo>& profileChatInfos = m_ChatInfos[profileId];
+      auto cit = profileChatInfos.find(chatId);
+      if ((cit == profileChatInfos.end()) || cit->second.isArchived || IsChatLocked(profileId, chatId)) continue;
+
+      // read on another device (or replied to) during the sync
+      if (!cit->second.isUnread) continue;
+
+      const std::string lastMessageId = GetLastMessageId(profileId, chatId);
+      if (lastMessageId.empty()) continue;
+
+      const ChatMessage& chatMessage = m_Messages[profileId][chatId].at(lastMessageId);
+
+      if (!mutedNotifyUnread && cit->second.isMuted && !chatMessage.hasMention) continue;
+
+      const bool receivedAfterConnect = (m_ConnectTime.count(profileId) > 0) &&
+        (chatMessage.timeSent > m_ConnectTime[profileId]);
+      if (!receivedAfterConnect) continue;
+
+      NotifyChatMessage(profileId, chatId, chatMessage);
+      ++notifyCount;
+    }
+
+    LOG_DEBUG("offline sync flush pending %d notified %d", (int)pendingChats.size(), notifyCount);
   }
 }
 

@@ -173,10 +173,13 @@ private:
     std::unordered_map<std::string, std::shared_ptr<Protocol>> GetProtocols();
     bool Process();
     void ProcessTimers();
+    void ProcessOfflineSyncFlush();
 
     std::string GetLastMessageId(const std::string& p_ProfileId, const std::string& p_ChatId);
     void UpdateChatInfoLastMessageTime(const std::string& p_ProfileId, const std::string& p_ChatId);
     void UpdateChatInfoIsUnread(const std::string& p_ProfileId, const std::string& p_ChatId);
+    void NotifyChatMessage(const std::string& p_ProfileId, const std::string& p_ChatId,
+                           const ChatMessage& p_ChatMessage);
     std::string GetContactName(const std::string& p_ProfileId, const std::string& p_ChatId);
     std::string GetContactNameIncludingSelf(const std::string& p_ProfileId, const std::string& p_ChatId);
     std::string GetContactListName(const std::string& p_ProfileId, const std::string& p_ChatId, bool p_AllowId,
@@ -342,6 +345,11 @@ private:
     std::unordered_map<std::string, std::unordered_map<std::string, ContactInfo>> m_ContactInfos;
     int64_t m_ContactInfosUpdateTime = 0;
     std::unordered_map<std::string, int64_t> m_ConnectTime;
+    // offline sync notification hold per profile: start time while held, end time once completed,
+    // and chats whose notification is held until the hold ends
+    std::unordered_map<std::string, int64_t> m_OfflineSyncStartTime;
+    std::unordered_map<std::string, int64_t> m_OfflineSyncEndTime;
+    std::unordered_map<std::string, std::set<std::string>> m_OfflineSyncPendingChats;
     int64_t m_LastSyncMessageTime = 0;
 
     std::pair<std::string, std::string> m_CurrentChat;
