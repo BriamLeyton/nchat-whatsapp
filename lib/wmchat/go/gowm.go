@@ -1965,6 +1965,23 @@ type ContactCard struct {
 	Emails []string
 }
 
+// FormatLocation formats a location as a tag line followed by its name, address, comment
+// and a map link, so the location can be opened with open_link.
+func FormatLocation(tag string, lat float64, lng float64, name string, address string, comment string) string {
+	lines := []string{tag}
+	for _, field := range []string{name, address, comment} {
+		if field = strings.TrimSpace(field); field != "" {
+			lines = append(lines, field)
+		}
+	}
+
+	if lat != 0 || lng != 0 {
+		lines = append(lines, fmt.Sprintf("https://maps.google.com/?q=%.6f,%.6f", lat, lng))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 // FormatContactCards formats one or more contact cards as a "[Contact]" tag on its own line,
 // followed by "Field: value" lines per contact, with contacts separated by a blank line.
 func FormatContactCards(cards []ContactCard) string {
@@ -2077,6 +2094,20 @@ func (handler *WmEventHandler) HandleMessage(messageInfo types.MessageInfo, msg 
 
 		contactText := FormatContactCards(GetContactCards(contacts))
 		msg.Conversation = &contactText
+		handler.HandleTextMessage(messageInfo, msg, isSyncRead)
+
+	case msg.LocationMessage != nil:
+		loc := msg.LocationMessage
+		locationText := FormatLocation("[Location]", loc.GetDegreesLatitude(), loc.GetDegreesLongitude(),
+			loc.GetName(), loc.GetAddress(), loc.GetComment())
+		msg.Conversation = &locationText
+		handler.HandleTextMessage(messageInfo, msg, isSyncRead)
+
+	case msg.LiveLocationMessage != nil:
+		loc := msg.LiveLocationMessage
+		locationText := FormatLocation("[Live Location]", loc.GetDegreesLatitude(), loc.GetDegreesLongitude(),
+			"", "", loc.GetCaption())
+		msg.Conversation = &locationText
 		handler.HandleTextMessage(messageInfo, msg, isSyncRead)
 
 	case msg.SecretEncryptedMessage != nil:
