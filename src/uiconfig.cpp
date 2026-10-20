@@ -19,13 +19,23 @@ void UiConfig::Init()
   const std::map<std::string, std::string> defaultConfig =
   {
     { "attachment_indicator", "\xF0\x9F\x93\x8E" },
+    { "attachment_indicator_archive", "\xF0\x9F\x93\xA6" },
+    { "attachment_indicator_audio", "\xF0\x9F\x8E\xB5" },
+    { "attachment_indicator_document", "\xF0\x9F\x93\x84" },
+    { "attachment_indicator_image", "\xF0\x9F\x93\xB7" },
+    { "attachment_indicator_pdf", "\xF0\x9F\x93\x95" },
+    { "attachment_indicator_spreadsheet", "\xF0\x9F\x93\x8A" },
+    { "attachment_indicator_video", "\xF0\x9F\x8E\xAC" },
+    { "attachment_indicator_voice", "\xF0\x9F\x8E\xA4" },
     { "attachment_open_command", "" },
+    { "attachment_type_icons_enabled", "1" },
     { "auto_compose_command", "" },
     { "auto_compose_enabled", "0" },
     { "auto_compose_history_count", "25" },
     { "auto_select_chat_timeout_sec", "1" },
     { "away_status_indication", "0" },
     { "call_command", "" },
+    { "chat_banner_enabled", "1" },
     { "chat_picker_sorted_alphabetically", "0" },
     { "confirm_archiving", "1" },
     { "confirm_deletion", "1" },
@@ -44,17 +54,36 @@ void UiConfig::Init()
     { "file_picker_command", "" },
     { "file_picker_persist_dir", "1" },
     { "help_enabled", "1" },
-    { "help_prefix_ctrl", "^" },
-    { "help_prefix_meta", "M-" },
+    { "help_prefix_ctrl", "Ctrl+" },
+    { "help_prefix_meta", "Alt+" },
     { "home_fetch_all", "0" },
+    { "inline_image_max_height", "12" },
+    { "inline_images_enabled", "1" },
     { "linefeed_on_enter", "1" },
     { "link_open_command", "" },
+    { "link_preview_fetch", "2" },
+    { "link_preview_indicator", "\xF0\x9F\x8C\x90" },
+    { "link_preview_command",
+      "curl -s -L -m 8 --max-redirs 5 --compressed --proto =http,https --proto-redir =http,https "
+      "-A 'facebookexternalhit/1.1' '%1' </dev/null 2>/dev/null" },
+    { "link_thumbnail_command",
+      "ffmpeg -nostdin -y -v error -protocol_whitelist http,https,tcp,tls -rw_timeout 8000000 "
+      "-user_agent 'facebookexternalhit/1.1' -i '%1' -vf \"scale='min(320,iw)':-2\" -frames:v 1 '%2' "
+      ">/dev/null 2>&1" },
+    { "list_archived_collapsed", "1" },
+    { "list_archived_header", "ARCHIVED" },
+    { "list_locked_header", "LOCKED" },
     { "list_enabled", "1" },
+    { "list_others_collapsed", "0" },
+    { "list_others_header", "OTHERS" },
+    { "list_pinned_header", "PINNED" },
+    { "list_status_name", "\xe2\x97\x89 Status" },
     { "list_width", "14" },
     { "listdialog_show_filter", "1" },
     { "mark_read_any_chat", "0" },
     { "mark_read_on_view", "1" },
     { "mark_read_when_inactive", "0" },
+    { "media_probe_command", "ffprobe -v error -show_entries format=duration -of csv=p=0 '%1' </dev/null 2>/dev/null" },
     { "message_edit_command", "" },
     { "message_open_command", "" },
     { "muted_indicate_unread", "1" },
@@ -68,9 +97,16 @@ void UiConfig::Init()
     { "proxy_indicator", "\xF0\x9F\x94\x92" },
     { "read_indicator", "\xe2\x9c\x93" },
     { "reactions_enabled", "1" },
+    { "receipt_delivered_indicator", "\xe2\x9c\x93\xe2\x9c\x93" },
+    { "receipt_read_indicator", "\xe2\x9c\x93\xe2\x9c\x93" },
+    { "receipt_sent_indicator", "\xe2\x9c\x93" },
     { "spell_check_command", "" },
     { "status_broadcast", "1" },
     { "status_enabled", "1" },
+    { "status_new_indicator", "\xe2\x97\x8f" },
+    { "status_prefetch", "1" },
+    { "status_prefetch_video_max_mb", "16" },
+    { "status_video_retention_days", "0" },
     { "syncing_indicator", "\xe2\x87\x84" },
     { "tab_size", "4" },
     { "terminal_bell_active", "0" },
@@ -82,10 +118,22 @@ void UiConfig::Init()
     { "typing_status_share", "1" },
     { "undo_clear_input", "1" },
     { "unread_indicator", "*" },
+    { "video_thumbnail_command", "ffmpegthumbnailer -i '%1' -o '%2' -s 640 -q 8 >/dev/null 2>&1" },
   };
 
   const std::string configPath(FileUtil::GetApplicationDir() + std::string("/ui.conf"));
   m_Config = Config(configPath, defaultConfig);
+
+  // migrate previous default key prefixes to the more readable Ctrl+s / Alt+p
+  if (m_Config.Get("help_prefix_ctrl") == "^")
+  {
+    m_Config.Set("help_prefix_ctrl", "Ctrl+");
+  }
+
+  if (m_Config.Get("help_prefix_meta") == "M-")
+  {
+    m_Config.Set("help_prefix_meta", "Alt+");
+  }
 }
 
 void UiConfig::Cleanup()

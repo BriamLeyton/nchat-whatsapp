@@ -99,6 +99,8 @@ enum MessageType
   ReinitRequestType,
   FindMessageRequestType,
   GetGroupMembersRequestType,
+  GetAvatarRequestType,
+  CheckSecretCodeRequestType,
   // Service messages
   ServiceMessageType,
   NewContactsNotifyType,
@@ -127,6 +129,10 @@ enum MessageType
   NewGroupMembersNotifyType,
   UpdateArchivedNotifyType,
   MoveChatNotifyType,
+  NewAvatarNotifyType,
+  UpdateLockedNotifyType,
+  CheckSecretCodeNotifyType,
+  OfflineSyncNotifyType,
 };
 
 struct ContactInfo
@@ -156,6 +162,16 @@ enum FileStatus
   FileStatusDownloaded = 1,
   FileStatusDownloading = 2,
   FileStatusDownloadFailed = 3,
+};
+
+// Delivery status of outgoing messages, ordered so that status never decreases
+enum DeliveryStatus
+{
+  DeliveryStatusUnknown = -1, // not tracked (incoming, other protocols, or cached before tracking)
+  DeliveryStatusNone = 0,
+  DeliveryStatusSent = 1,
+  DeliveryStatusDelivered = 2,
+  DeliveryStatusRead = 3,
 };
 
 struct FileInfo
@@ -199,6 +215,8 @@ struct ChatMessage
   std::string quotedId;
   std::string quotedText;
   std::string quotedSender;
+  std::string quotedChatId; // chat of quoted message when not the same chat, not db cached
+  std::string quotedFilePath; // "image:<path>" or "video:<path>" thumbnail of quoted message, not db cached
   std::string fileInfo;
   std::string link; // only required for tgchat, sponsored msg, not db cached
   std::map<std::string, std::string> mentions; // displayName -> userId, not db cached
@@ -210,6 +228,7 @@ struct ChatMessage
   bool isDeleted = false;
   bool isPinned = false;
   bool hasMention = false; // only required for tgchat, not db cached
+  int deliveryStatus = DeliveryStatusUnknown;
 };
 
 enum DownloadFileAction
@@ -354,6 +373,7 @@ class CreateChatRequest : public RequestMessage
 public:
   virtual MessageType GetMessageType() const { return CreateChatRequestType; }
   std::string userId;
+  std::string phone; // digits only, checked against WhatsApp when set (userId is then empty)
 };
 
 class DeferNotifyRequest : public RequestMessage
@@ -462,6 +482,23 @@ class GetGroupMembersRequest : public RequestMessage
 public:
   virtual MessageType GetMessageType() const { return GetGroupMembersRequestType; }
   std::string chatId;
+};
+
+// Profile photo of chat, stored as <basePath>.jpg (preview, id in <basePath>.id) or <basePath>.full.jpg
+class GetAvatarRequest : public RequestMessage
+{
+public:
+  virtual MessageType GetMessageType() const { return GetAvatarRequestType; }
+  std::string chatId;
+  std::string basePath;
+  bool isFull = false;
+};
+
+class CheckSecretCodeRequest : public RequestMessage
+{
+public:
+  virtual MessageType GetMessageType() const { return CheckSecretCodeRequestType; }
+  std::string code; // never logged or stored
 };
 
 // Service messages
@@ -573,6 +610,13 @@ public:
   bool isOnline;
 };
 
+enum CreateChatResult
+{
+  CreateChatResultError = -1, // check failed, may be retried
+  CreateChatResultOk = 0,
+  CreateChatResultNotOnWhatsApp = 1,
+};
+
 class CreateChatNotify : public ServiceMessage
 {
 public:
@@ -581,6 +625,8 @@ public:
   virtual MessageType GetMessageType() const { return CreateChatNotifyType; }
   bool success = false;
   ChatInfo chatInfo;
+  std::string phone; // set for chats created by phone number
+  int result = CreateChatResultOk;
 };
 
 class ReceiveTypingNotify : public ServiceMessage
@@ -622,6 +668,7 @@ public:
   std::string chatId;
   std::string msgId;
   bool isRead = false;
+  int deliveryStatus = DeliveryStatusUnknown;
 };
 
 class NewMessageIsPinnedNotify : public ServiceMessage
@@ -655,6 +702,59 @@ public:
   virtual MessageType GetMessageType() const { return DeleteChatNotifyType; }
   bool success = false;
   std::string chatId;
+};
+
+enum AvatarResult
+{
+  AvatarResultError = -1, // not stored, may be retried
+  AvatarResultOk = 0, // stored or unchanged
+  AvatarResultNone = 1, // no photo, or hidden
+};
+
+class NewAvatarNotify : public ServiceMessage
+{
+public:
+  explicit NewAvatarNotify(const std::string& p_ProfileId)
+    : ServiceMessage(p_ProfileId) { }
+  virtual MessageType GetMessageType() const { return NewAvatarNotifyType; }
+  std::string chatId;
+  bool isFull = false;
+  int result = AvatarResultError;
+};
+
+class UpdateLockedNotify : public ServiceMessage
+{
+public:
+  explicit UpdateLockedNotify(const std::string& p_ProfileId)
+    : ServiceMessage(p_ProfileId) { }
+  virtual MessageType GetMessageType() const { return UpdateLockedNotifyType; }
+  std::string chatId; // empty for chat lock settings update, isLocked then tells if secret code is set
+  bool isLocked = false;
+};
+
+enum SecretCodeResult
+{
+  SecretCodeResultOk = 0,
+  SecretCodeResultWrong = 1,
+  SecretCodeResultNoCode = 2,
+};
+
+class CheckSecretCodeNotify : public ServiceMessage
+{
+public:
+  explicit CheckSecretCodeNotify(const std::string& p_ProfileId)
+    : ServiceMessage(p_ProfileId) { }
+  virtual MessageType GetMessageType() const { return CheckSecretCodeNotifyType; }
+  int result = SecretCodeResultWrong;
+};
+
+class OfflineSyncNotify : public ServiceMessage
+{
+public:
+  explicit OfflineSyncNotify(const std::string& p_ProfileId)
+    : ServiceMessage(p_ProfileId) { }
+  virtual MessageType GetMessageType() const { return OfflineSyncNotifyType; }
+  bool isStarted = false; // true when pending offline events start, false when completed
 };
 
 class MoveChatNotify : public ServiceMessage

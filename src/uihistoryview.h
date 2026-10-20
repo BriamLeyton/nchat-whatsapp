@@ -8,8 +8,12 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "uiviewbase.h"
+
+struct ChatBanner;
+struct UiImagePlacement;
 
 class UiHistoryView : public UiViewBase
 {
@@ -22,6 +26,8 @@ public:
 
 private:
   std::string GetTimeString(int64_t p_TimeSent);
+  void DrawBanner(const ChatBanner& p_ChatBanner, int p_Rows, int p_WinBegY, int p_WinBegX,
+                  std::vector<UiImagePlacement>& p_ImagePlacements);
 
 private:
   WINDOW* m_PaddedWin = nullptr;

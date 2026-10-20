@@ -55,7 +55,7 @@ Interactive Commands:
     Tab         next chat
     Sh-Tab      previous chat
     Ctrl-f      jump to unread chat
-    Ctrl-g      toggle show help bar
+    Ctrl-g      show help dialog with all commands (Esc closes)
     Ctrl-l      toggle show contact list
     Ctrl-n      goto chat
     Ctrl-p      toggle show top bar
@@ -69,10 +69,14 @@ Interactive Commands:
     Alt-a       archive current chat
     Alt-d       delete/leave current chat
     Alt-e       external editor compose
+    Alt-h       collapse/expand archived chats section
+    Alt-l       show/hide locked chats (asks for WhatsApp secret code)
     Alt-i       auto-compose reply
-    Alt-n       search contacts
+    Alt-n       search contacts, or open chat by phone number or link
+    Alt-o       collapse/expand others chats section
     Alt-p       pin/unpin current chat
     Alt-t       external telephone call
+    Alt-u       filter status updates by contact (in Status)
     Alt-/       find in chat
     Alt-?       find next in chat
     Alt-$       external spell check
@@ -108,6 +112,15 @@ Interactive Commands for Text Input:
     Alt-c       copy input buffer to clipboard (if no message selected)
     Alt-v       paste into input buffer from clipboard
     Alt-x       cut input buffer to clipboard
+
+Typing or pasting an international phone number (with country code, e.g.
+`+1 555 123 4567`) or a WhatsApp link (`https://wa.me/...`,
+`https://api.whatsapp.com/send/?phone=...`, `whatsapp://send?phone=...`) in
+the Alt-n contact search shows an `Open chat with +<number>` item first.
+Selecting it opens the existing chat with that number, or checks once with
+WhatsApp that the number is registered and creates the chat. The `text` of
+a link is placed in the message input, unsent, unless the chat already has a
+draft.
 
 
 Supported Platforms
@@ -467,13 +480,23 @@ be used for debugging startup crash / hang regressions.
 This configuration file holds general user interface settings. Default content:
 
     attachment_indicator=📎
+    attachment_indicator_archive=📦
+    attachment_indicator_audio=🎵
+    attachment_indicator_document=📄
+    attachment_indicator_image=📷
+    attachment_indicator_pdf=📕
+    attachment_indicator_spreadsheet=📊
+    attachment_indicator_video=🎬
+    attachment_indicator_voice=🎤
     attachment_open_command=
+    attachment_type_icons_enabled=1
     away_status_indication=0
     auto_compose_command=
     auto_compose_enabled=0
     auto_compose_history_count=25
     auto_select_chat_timeout_sec=1
     call_command=
+    chat_banner_enabled=1
     chat_picker_sorted_alphabetically=0
     confirm_archiving=1
     confirm_deletion=1
@@ -495,14 +518,21 @@ This configuration file holds general user interface settings. Default content:
     help_prefix_ctrl=^
     help_prefix_meta=M-
     home_fetch_all=0
+    inline_image_max_height=12
+    inline_images_enabled=1
     linefeed_on_enter=1
     link_open_command=
+    link_preview_command=curl -s -L -m 8 --max-redirs 5 --compressed --proto =http,https --proto-redir =http,https -A 'facebookexternalhit/1.1' '%1' </dev/null 2>/dev/null
+    link_preview_fetch=2
+    link_preview_indicator=🌐
+    link_thumbnail_command=ffmpeg -nostdin -y -v error -protocol_whitelist http,https,tcp,tls -rw_timeout 8000000 -user_agent 'facebookexternalhit/1.1' -i '%1' -vf "scale='min(320,iw)':-2" -frames:v 1 '%2' >/dev/null 2>&1
     list_enabled=1
     list_width=14
     listdialog_show_filter=1
     mark_read_any_chat=0
     mark_read_on_view=1
     mark_read_when_inactive=0
+    media_probe_command=ffprobe -v error -show_entries format=duration -of csv=p=0 '%1' </dev/null 2>/dev/null
     message_edit_command=
     message_open_command=
     muted_indicate_unread=1
@@ -519,6 +549,10 @@ This configuration file holds general user interface settings. Default content:
     spell_check_command=
     status_broadcast=1
     status_enabled=1
+    status_new_indicator=●
+    status_prefetch=1
+    status_prefetch_video_max_mb=16
+    status_video_retention_days=0
     syncing_indicator=⇄
     tab_size=4
     terminal_bell_active=0
@@ -530,10 +564,21 @@ This configuration file holds general user interface settings. Default content:
     typing_status_share=1
     undo_clear_input=1
     unread_indicator=*
+    video_thumbnail_command=ffmpegthumbnailer -i '%1' -o '%2' -s 640 -q 8 >/dev/null 2>&1
 
 ### attachment_indicator
 
 Specifies text to prefix attachment filenames in message view.
+Used for all attachments when `attachment_type_icons_enabled=0`, and
+otherwise for file types not covered by `attachment_indicator_*`.
+
+### attachment_indicator_archive, attachment_indicator_audio, attachment_indicator_document, attachment_indicator_image, attachment_indicator_pdf, attachment_indicator_spreadsheet, attachment_indicator_video, attachment_indicator_voice
+
+Specify text to prefix attachment filenames of each file type in message
+view, when `attachment_type_icons_enabled=1`. The type is determined by
+the file extension (case-insensitive), except voice notes which are always
+shown with `attachment_indicator_voice`. An empty value falls back to
+`attachment_indicator`.
 
 ### attachment_open_command
 
@@ -547,6 +592,12 @@ macOS: `open '%1' &`
 
 Note: Omit the trailing `&` for commands taking over the terminal, for
 example `w3m -o confirm_qq=false '%1'` and `see '%1'`.
+
+### attachment_type_icons_enabled
+
+Specifies whether to prefix attachment filenames in message view with an
+icon based on the file type (`attachment_indicator_*`), instead of
+`attachment_indicator` for all attachments.
 
 ### away_status_indication
 
@@ -597,6 +648,21 @@ are used:
 Linux: `xdg-open >/dev/null 2>&1 'tel://%1' &`
 
 macOS: `open 'tel://%1' &`
+
+### chat_banner_enabled
+
+Specifies whether to show a banner on top of contact and group chats, with
+profile photo (inline, in terminals supporting the kitty graphics protocol),
+name and phone number, presence (colored by typing, online, away, last seen)
+and number of status updates of the last 24 hours (contacts), or number of
+participants (groups). In a contact chat, Alt-u (`status_filter`) shows the
+status updates of the contact, and Alt-u again returns to the chat. `open`
+without a selected message opens the profile photo in full size.
+
+Profile photos are requested from WhatsApp when opening a chat, at most once
+per 24 hours per chat (unchanged photos are not downloaded again), and stored
+in `avatars` in the profile directory. The full size photo is only requested
+when opened.
 
 ### chat_picker_sorted_alphabetically
 
@@ -695,18 +761,19 @@ last selected file.
 
 ### help_enabled
 
-Specifies whether to display help bar. Controlled by Ctrl-g in run-time.
+Specifies whether to display help bar. Ctrl-g opens a help dialog listing
+all commands.
 
 ### help_prefix_ctrl
 
 Specifies the prefix used in the help bar for control key combinations,
-i.e. `^` results in `^X` being displayed for Ctrl-X. Users on macOS may
+i.e. `Ctrl+` (default) results in `Ctrl+x` being displayed for Ctrl-X. Users on macOS may
 prefer the Apple modifier symbol `⌃` here.
 
 ### help_prefix_meta
 
 Specifies the prefix used in the help bar for meta / alt key combinations,
-i.e. `M-` results in `M-/` being displayed for Alt-/. Users on macOS may
+i.e. `Alt+` (default) results in `Alt+/` being displayed for Alt-/. Users on macOS may
 prefer the Apple modifier symbol `⌥` here. Other alternatives include
 `A-` and `Alt-`.
 
@@ -716,6 +783,16 @@ configured in `key.conf`.
 ### home_fetch_all
 
 Specifies whether `home` button shall repeatedly fetch all chat history.
+
+### inline_image_max_height
+
+Specifies the maximum height, in rows, of inline images, video poster frames
+embedded thumbnails and link preview thumbnails.
+
+### inline_images_enabled
+
+Specifies whether to show images inline in terminals supporting the kitty
+graphics protocol (e.g. kitty, Ghostty).
 
 ### linefeed_on_enter
 
@@ -737,6 +814,79 @@ macOS: `open '%1' &`
 Note: Omit the trailing `&` for commands taking over the terminal, for
 example `w3m -o confirm_qq=false '%1'` and `see '%1'`.
 
+### link_preview_command
+
+Specifies the command used to fetch the web page of a link for its preview
+(see `link_preview_fetch`). `%1` is replaced by the url, and the command shall
+write the page html to stdout (only the first 1 MB is used). A non-zero exit
+status is treated as a network error: the link is not marked as fetched and is
+retried next session. Default:
+
+    curl -s -L -m 8 --max-redirs 5 --compressed --proto =http,https --proto-redir =http,https -A 'facebookexternalhit/1.1' '%1' </dev/null 2>/dev/null
+
+The user agent `facebookexternalhit/1.1` makes sites such as Facebook return
+their Open Graph metadata instead of a login page.
+
+### link_preview_fetch
+
+Specifies whose links get a preview fetched from the web page, for messages
+without an embedded preview (received before media previews, sent from nchat,
+or sent without one). Only links in messages shown on screen are fetched, one
+at a time in background, and only the first link of a message. Title,
+description and image are taken from Open Graph tags, falling back to Twitter
+tags and the html title and description. Results are stored in the
+`<id>.meta` and `<id>.thumb.jpg` sidecar files, so each link is fetched once,
+also if the page had no metadata. Levels:
+
+- `0` never fetch
+- `1` own messages, and chats and status updates of contacts saved in the
+  address book
+- `2` like `1`, plus all messages in groups (default)
+- `3` all messages, also from unknown numbers and channels
+
+Privacy note: fetching a link reveals your IP address to the site, and that
+the message was viewed. A link unique to the recipient (as used for tracking)
+could thereby confirm to a spammer that the number is active. The official
+WhatsApp apps do not have this exposure, as the sender generates the preview.
+Saved contacts are determined from the address book names synced from
+WhatsApp, written to `<profile>/saved_contacts` on connect.
+
+### link_preview_indicator
+
+Specifies text to prefix the first line of a link preview (the title, or the
+description if there is no title) in message view. Empty for no icon.
+
+### link_thumbnail_command
+
+Specifies the command used to create the preview thumbnail of a link from its
+image url (`%1`), written as JPEG to `%2`. Default:
+
+    ffmpeg -nostdin -y -v error -protocol_whitelist http,https,tcp,tls -rw_timeout 8000000 -user_agent 'facebookexternalhit/1.1' -i '%1' -vf "scale='min(320,iw)':-2" -frames:v 1 '%2' >/dev/null 2>&1
+
+### list_archived_collapsed
+
+Specifies whether the archived chats section of the chat list is collapsed.
+Controlled by Alt-h in run-time.
+
+### list_archived_header
+
+Title of the archived chats section in the chat list.
+
+### list_locked_header
+
+Title of the locked chats section in the chat list.
+
+WhatsApp locked chats (Chat Lock) are hidden in nchat, like in WhatsApp Web:
+they are not shown in the chat list, Tab navigation, unread jump, goto chat
+or contact search, and never notify. Alt-l (`toggle_locked`) asks for the
+locked chats secret code set in WhatsApp on the phone, checks it locally
+against the hash synced from WhatsApp (the code is never sent, stored or
+logged), and shows the locked chats in a section at the end of the chat list.
+Alt-l again, or restarting nchat, hides them. Locked chats are stored in
+`locked_chats` and the secret code hash in `chat_lock` in the profile
+directory; the first connection downloads the `regular_low` app state once
+to learn them (marked by `locked_synced`).
+
 ### list_enabled
 
 Specifies whether to display chat list. Controlled by Ctrl-l in run-time.
@@ -744,6 +894,56 @@ Specifies whether to display chat list. Controlled by Ctrl-l in run-time.
 ### list_width
 
 Specifies width of chat list.
+
+### list_others_collapsed
+
+Specifies whether the others chats section (neither pinned nor archived) of
+the chat list is collapsed. Controlled by Alt-o in run-time. Sections are only
+shown when there are pinned or archived chats.
+
+### list_others_header
+
+Title of the others chats section in the chat list.
+
+### list_pinned_header
+
+Title of the pinned chats section in the chat list.
+
+### list_status_name
+
+Name of the WhatsApp Status Updates row, shown first in the chat list outside
+of the chat sections. Its style is set by `list_attr_status` and
+`list_color_status_fg` / `list_color_status_bg` in `color.conf`. Status
+Updates cannot be pinned or archived, and `status_broadcast=0` hides the row.
+
+In Status Updates, Alt-u filters by the contact of the selected status, or
+opens a dialog of contacts with status updates when no status is selected.
+Alt-u again, or leaving Status Updates, removes the filter. In a contact chat,
+Alt-u shows the status updates of the contact, and Alt-u again returns to the
+chat.
+
+Status updates are not marked as viewed when shown in the list, only when
+opened with `open` (attachment) or `open_msg` (text) on the selected status,
+which sends the viewed receipt to its author. Unopened status updates remain
+unread.
+
+New status updates are prefixed with `status_new_indicator` (default `●`),
+which is also shown on the Status Updates row of the chat list instead of
+`unread_indicator`. Selecting a status update removes its indicator without
+marking it viewed (no receipt is sent). Status updates seen this way are stored
+locally in `status_seen` in the profile directory.
+
+Status updates older than 24 hours are local only: opening them marks them
+read in nchat without sending read receipts, their attachments are never
+downloaded (already downloaded files are still shown), and reacting to them is
+not possible. Sending messages, files or edits in Status Updates is blocked, so
+a status is never published by accident.
+
+To reply to a status update, select it, type the reply and send it: the reply
+is sent privately to the author, quoting the status update (with its embedded
+thumbnail for photos and videos, nothing is downloaded), and nchat continues in
+the author chat. Own and expired status updates cannot be replied to. In the
+author chat, the quote shows the status update text or file.
 
 ### listdialog_show_filter
 
@@ -765,6 +965,16 @@ false nchat will only mark the messages read upon `next_page` (page down),
 
 Controls whether nchat marks messages in the current chat as read while the
 terminal is inactive.
+
+### media_probe_command
+
+Specifies a command used to determine the duration in seconds of downloaded
+video and audio attachments lacking it (received before media previews, or
+sent from nchat). `%1` is replaced by the file path. Results are stored in the
+`<id>.meta` sidecar file, so each file is probed once. If the command is empty
+or fails only the file size is shown. Default:
+
+    ffprobe -v error -show_entries format=duration -of csv=p=0 '%1' </dev/null 2>/dev/null
 
 ### message_edit_command
 
@@ -849,6 +1059,32 @@ Specifies (WhatsApp) Status Updates chat level of visibility:
 
 Specifies whether to display status bar.
 
+### status_new_indicator
+
+Specifies the indicator for new status updates, shown before the contact name
+of status updates not yet selected nor opened, and on the Status Updates row of
+the chat list.
+
+### status_prefetch
+
+Specifies whether to download attachments of status updates (less than 24 hours
+old) in background as they arrive, like the official app. Images are always
+prefetched, videos only up to `status_prefetch_video_max_mb` (videos of unknown
+size are not prefetched). Prefetches are sent one at a time, so sending
+messages does not wait for the whole queue, and are held while offline.
+
+### status_prefetch_video_max_mb
+
+Specifies the max size in MB of status update videos to prefetch.
+
+### status_video_retention_days
+
+Specifies the number of days to keep downloaded videos of status updates. On
+startup, video files of older status updates are deleted in background, and
+marked as not downloaded (being expired they are never downloaded again).
+Images, poster frames, thumbnails and metadata are kept. Default 0 never
+deletes.
+
 ### syncing_indicator
 
 Specifies text to suffix attachment filenames in message view for downloads
@@ -897,6 +1133,29 @@ is enabled.
 ### unread_indicator
 
 Specifies the character to suffix chats with unread messages in the chat list.
+
+### video_thumbnail_command
+
+Specifies a command used to generate a poster frame of downloaded videos, shown
+as inline image. `%1` is replaced by the video path and `%2` by the output
+image path. Default:
+
+    ffmpegthumbnailer -i '%1' -o '%2' -s 640 -q 8 >/dev/null 2>&1
+
+Empty disables poster frames. Videos with a failed poster frame are not retried
+until nchat is restarted.
+
+Media previews are based on data embedded in received messages (no extra
+network requests), stored next to attachments as `<id>.thumb.jpg` and
+`<id>.meta`:
+- video and audio attachments show duration and size (`▶ 1:15 · 4.2 MB`),
+  voice notes show `🎤 0:42`;
+- images and videos not (yet) downloaded show the low-resolution embedded
+  thumbnail inline, enlarged to the same size as a downloaded image;
+- links show title, description and thumbnail;
+- text-only status updates are drawn with their background color.
+
+Messages received before this feature show as before.
 
 ~/.config/nchat/key.conf
 ------------------------
@@ -964,6 +1223,7 @@ This configuration file holds user interface key bindings. Default content:
     toggle_emoji=KEY_CTRLY
     toggle_help=KEY_CTRLG
     toggle_list=KEY_CTRLL
+    toggle_locked=\33\154
     toggle_top=KEY_NONE
     transfer=KEY_CTRLT
     unread_chat=KEY_CTRLF
@@ -996,6 +1256,17 @@ This configuration file holds user interface color settings. Default content:
     help_attr=reverse
     help_color_bg=black
     help_color_fg=white
+    history_banner_attr=
+    history_banner_away_color_bg=0x202c33
+    history_banner_away_color_fg=0xe9c46a
+    history_banner_color_bg=0x202c33
+    history_banner_color_fg=
+    history_banner_online_color_bg=0x202c33
+    history_banner_online_color_fg=0x25d366
+    history_banner_seen_color_bg=0x202c33
+    history_banner_seen_color_fg=0x8696a0
+    history_banner_typing_color_bg=0x202c33
+    history_banner_typing_color_fg=0x25d366
     history_name_attr=bold
     history_name_attr_selected=reverse
     history_name_recv_color_bg=

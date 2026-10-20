@@ -228,11 +228,15 @@ void UiKeyConfig::Init(bool p_MapKeys)
     { "jump_quoted", "\\33\\161" }, // alt/opt-q
     { "jump_pinned", "KEY_CTRLP" },
     { "find", "\\33\\57" }, // alt/opt-/
+    { "toggle_locked", "\\33\\154" }, // alt/opt-l
     { "find_next", "\\33\\77" }, // alt/opt-?
     { "toggle_emoji", "KEY_CTRLY" },
     { "toggle_help", "KEY_CTRLG" },
     { "toggle_list", "KEY_CTRLL" },
     { "toggle_top", "KEY_NONE" },
+    { "toggle_others", "\\33\\157" }, // alt/opt-o
+    { "toggle_archived", "\\33\\150" }, // alt/opt-h
+    { "status_filter", "\\33\\165" }, // alt/opt-u
     { "next_chat", "KEY_TAB" },
     { "prev_chat", "KEY_BTAB" },
     { "unread_chat", "KEY_CTRLF" },

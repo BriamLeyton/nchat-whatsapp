@@ -16,11 +16,13 @@
 #include "apputil.h"
 #include "emojilist.h"
 #include "log.h"
+#include "mediainfo.h"
 #include "messagecache.h"
 #include "timeutil.h"
 #include "uicolorconfig.h"
 #include "uiconfig.h"
 #include "uicontroller.h"
+#include "uiimage.h"
 #include "uikeyconfig.h"
 #include "uikeydump.h"
 #include "uimodel.h"
@@ -49,6 +51,8 @@ void Ui::Init()
     printf("\033]0;%s\007", m_TerminalTitle.c_str());
   }
 
+  UiImage::Init(); // query terminal before ncurses takes over input
+
   printf("\033[?1004h"); // enable terminal focus in/out event
 
   setlocale(LC_ALL, "");
@@ -74,6 +78,8 @@ void Ui::Cleanup()
   UiKeyConfig::Cleanup();
   EmojiList::Cleanup();
 
+  MediaInfo::Cleanup();
+  UiImage::Cleanup();
   wclear(stdscr);
   endwin();
 

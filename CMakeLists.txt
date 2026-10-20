@@ -402,6 +402,8 @@ add_custom_command(
 add_executable(nchat
   ${COMPOSE_SCRIPT_HEADER}
   src/main.cpp
+  src/mediainfo.cpp
+  src/mediainfo.h
   src/ui.cpp
   src/ui.h
   src/uichatlistdialog.cpp
@@ -428,6 +430,8 @@ add_executable(nchat
   src/uihelpview.h
   src/uihistoryview.cpp
   src/uihistoryview.h
+  src/uiimage.cpp
+  src/uiimage.h
   src/uikeyconfig.cpp
   src/uikeyconfig.h
   src/uikeydump.cpp
@@ -440,12 +444,16 @@ add_executable(nchat
   src/uilistdialog.h
   src/uilistview.cpp
   src/uilistview.h
+  src/uihelpdialog.cpp
+  src/uihelpdialog.h
   src/uimessagedialog.cpp
   src/uimessagedialog.h
   src/uimodel.cpp
   src/uimodel.h
   src/uiscreen.cpp
   src/uiscreen.h
+  src/uistatuscontactdialog.cpp
+  src/uistatuscontactdialog.h
   src/uistatusview.cpp
   src/uistatusview.h
   src/uitextinputdialog.cpp
@@ -510,8 +518,19 @@ else()
   target_compile_options(nchat PUBLIC ${NCURSES_CFLAGS})
 endif()
 
+# Dependency stb (vendored, inline image decoding and resizing)
+add_library(stbimpl STATIC ext/stb/stbimpl.cpp)
+set_target_properties(stbimpl PROPERTIES POSITION_INDEPENDENT_CODE ON COMPILE_FLAGS "-w")
+target_include_directories(nchat SYSTEM PRIVATE "ext/stb")
+
+# Dependency libwebp (inline image decoding of stickers)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(WEBP REQUIRED libwebp libwebpdemux)
+target_include_directories(nchat SYSTEM PRIVATE ${WEBP_INCLUDE_DIRS})
+
 # Linking
-target_link_libraries(nchat PUBLIC ncutil pthread ${CURSES_LIBRARIES} ${CMAKE_DL_LIBS})
+target_link_libraries(nchat PUBLIC ncutil pthread ${CURSES_LIBRARIES} ${CMAKE_DL_LIBS}
+                      stbimpl ${WEBP_LINK_LIBRARIES})
 
 # Optionals
 if(HAS_DUMMY)

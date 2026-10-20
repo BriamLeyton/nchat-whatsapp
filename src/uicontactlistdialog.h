@@ -19,6 +19,8 @@ struct UiContactListItem
   std::string profileId;
   std::string contactId;
   std::string name;
+  std::string phone; // set for open-by-number item, contactId is then empty
+  std::string text; // message text from link, if any
 };
 
 class UiContactListDialog : public UiListDialog
@@ -28,6 +30,8 @@ public:
   virtual ~UiContactListDialog();
 
   UiContactListItem GetSelectedContactItem();
+
+  static bool ParseWhatsAppLink(const std::string& p_Str, std::string& p_Phone, std::string& p_Text);
 
 protected:
   virtual void OnSelect();

@@ -388,6 +388,15 @@ func (proc *Processor) DecodePatches(
 			if len(warn) > 0 {
 				proc.Log.Warnf("Warnings while updating hash for %s: %+v", list.Name, warn)
 			}
+			// nchat: log content of rejected patch for diagnostics
+			for i, mutation := range patch.GetMutations() {
+				indexMAC, _, index, syncAction, _, decErr := proc.decodeMutation(ctx, mutation, i, false)
+				if decErr != nil {
+					proc.Log.Warnf("Rejected %s patch v%d mutation #%d %s undecodable: %v", list.Name, patch.GetVersion().GetVersion(), i+1, mutation.GetOperation(), decErr)
+					continue
+				}
+				proc.Log.Warnf("Rejected %s patch v%d mutation #%d %s index %v mac %X ts %d value %v", list.Name, patch.GetVersion().GetVersion(), i+1, mutation.GetOperation(), index, indexMAC, syncAction.GetValue().GetTimestamp(), syncAction.GetValue())
+			}
 			return
 		}
 

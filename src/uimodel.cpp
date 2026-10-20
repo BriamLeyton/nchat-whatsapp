@@ -8,9 +8,12 @@
 #include "uimodel.h"
 
 #include <algorithm>
+#include <sstream>
+#include <thread>
 
 #include <ncurses.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "appconfig.h"
@@ -20,6 +23,7 @@
 #include "composescript.h"
 #include "fileutil.h"
 #include "log.h"
+#include "mediainfo.h"
 #include "numutil.h"
 #include "protocolutil.h"
 #include "sethelp.h"
@@ -28,15 +32,18 @@
 #include "sysutil.h"
 #include "timeutil.h"
 #include "uidialog.h"
+#include "uiimage.h"
 #include "uichatlistdialog.h"
 #include "uiconfig.h"
 #include "uicontactlistdialog.h"
 #include "uigroupmemberlistdialog.h"
+#include "uistatuscontactdialog.h"
 #include "uicontroller.h"
 #include "uiemojilistdialog.h"
 #include "uifilelistdialog.h"
 #include "uikeyconfig.h"
 #include "uikeyinput.h"
+#include "uihelpdialog.h"
 #include "uimessagedialog.h"
 #include "uitextinputdialog.h"
 #include "uiview.h"
@@ -58,11 +65,17 @@ UiModel::Impl::~Impl()
 
 void UiModel::Impl::Init()
 {
+  m_SectionCollapsed[ChatSectionOthers] = UiConfig::GetBool("list_others_collapsed");
+  m_SectionCollapsed[ChatSectionArchived] = UiConfig::GetBool("list_archived_collapsed");
   m_View->Init();
 }
 
 void UiModel::Impl::Cleanup()
 {
+  if (m_StatusVideoCleanupThread.joinable())
+  {
+    m_StatusVideoCleanupThread.join();
+  }
 }
 
 void UiModel::Impl::AnyUserKeyInput()
@@ -90,6 +103,7 @@ void UiModel::Impl::TerminalControlPause()
 {
   m_TermLines = LINES;
   m_TermCols = COLS;
+  UiImage::Suspend();
   printf("\033[?1004l"); // disable terminal focus in/out event
   fflush(stdout);
   endwin();
@@ -98,6 +112,7 @@ void UiModel::Impl::TerminalControlPause()
 void UiModel::Impl::TerminalControlResume()
 {
   refresh();
+  UiImage::Invalidate(); // alternate screen re-entry discards terminal image data
   printf("\033[?1004h"); // enable terminal focus in/out event
   fflush(stdout);
   wint_t key = 0;
@@ -116,6 +131,8 @@ void UiModel::Impl::TerminalControlResume()
       TerminalResize();
     }
   }
+
+  UiImage::Resume();
 }
 
 void UiModel::Impl::OnKeyDecreaseListWidth()
@@ -132,11 +149,99 @@ void UiModel::Impl::OnKeyIncreaseListWidth()
   ReinitView();
 }
 
-void UiModel::Impl::OnKeyToggleHelp()
+void UiModel::Impl::OnKeyToggleOthers()
 {
   AnyUserKeyInput();
-  m_View->SetHelpEnabled(!m_View->GetHelpEnabled());
-  ReinitView();
+  ToggleSectionCollapsed(ChatSectionOthers);
+}
+
+void UiModel::Impl::OnKeyToggleArchived()
+{
+  AnyUserKeyInput();
+  ToggleSectionCollapsed(ChatSectionArchived);
+}
+
+void UiModel::Impl::ToggleSectionCollapsed(int p_Section)
+{
+  if (GetEditMessageActive()) return;
+
+  SetSectionCollapsed(p_Section, !GetSectionCollapsed(p_Section));
+  if ((m_CurrentChat != s_ChatNone) && IsChatHidden(m_CurrentChat.first, m_CurrentChat.second))
+  {
+    if (SelectNearestVisibleChat())
+    {
+      OnCurrentChatChanged();
+      SetSelectMessageActive(false);
+    }
+  }
+
+  UpdateList();
+}
+
+int UiModel::Impl::GetChatSection(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  if (IsStatusChat(p_ChatId)) return ChatSectionStatus;
+
+  if (IsChatLocked(p_ProfileId, p_ChatId)) return ChatSectionLocked;
+
+  const ChatInfo& chatInfo = m_ChatInfos[p_ProfileId][p_ChatId];
+  if (chatInfo.isPinned) return ChatSectionPinned;
+
+  if (chatInfo.isArchived) return ChatSectionArchived;
+
+  return ChatSectionOthers;
+}
+
+bool UiModel::Impl::GetSectionCollapsed(int p_Section)
+{
+  return m_SectionCollapsed[p_Section];
+}
+
+void UiModel::Impl::SetSectionCollapsed(int p_Section, bool p_Collapsed)
+{
+  if ((p_Section == ChatSectionStatus) || (p_Section == ChatSectionPinned) || (p_Section == ChatSectionLocked)) return;
+
+  m_SectionCollapsed[p_Section] = p_Collapsed;
+  UiConfig::SetBool((p_Section == ChatSectionOthers) ? "list_others_collapsed" : "list_archived_collapsed",
+                    p_Collapsed);
+}
+
+bool UiModel::Impl::IsChatHidden(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  const int section = GetChatSection(p_ProfileId, p_ChatId);
+  if (section == ChatSectionLocked) return !m_LockedVisible;
+
+  if (!m_SectionCollapsed[section]) return false;
+
+  // a section only collapses when there are chats in other sections (i.e. section titles are shown),
+  // status updates are not part of any titled section, nor are hidden locked chats
+  const int otherSectionsCount =
+    (int)m_ChatVec.size() - m_SectionChatCount[section] - m_SectionChatCount[ChatSectionStatus] -
+    (m_LockedVisible ? 0 : m_SectionChatCount[ChatSectionLocked]);
+  return (otherSectionsCount > 0);
+}
+
+bool UiModel::Impl::SelectNearestVisibleChat()
+{
+  const int count = m_ChatVec.size();
+  const int start = std::max(0, m_CurrentChatIndex);
+  for (int dist = 1; dist < count; ++dist)
+  {
+    for (int idx : { start + dist, start - dist })
+    {
+      if ((idx < 0) || (idx >= count)) continue;
+
+      const std::pair<std::string, std::string>& chat = m_ChatVec.at(idx);
+      if (!IsChatHidden(chat.first, chat.second))
+      {
+        m_CurrentChatIndex = idx;
+        m_CurrentChat = chat;
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 void UiModel::Impl::OnKeyToggleList()
@@ -167,6 +272,13 @@ void UiModel::Impl::OnKeyToggleEmoji()
 void UiModel::Impl::OnKeySendMsg()
 {
   AnyUserKeyInput();
+  if (IsStatusChat(m_CurrentChat.second))
+  {
+    // never publish a status update, only reply privately to selected status, keep entry text otherwise
+    SendStatusReply();
+    return;
+  }
+
   bool editMessageActive = GetEditMessageActive();
   if (editMessageActive)
   {
@@ -209,6 +321,93 @@ void UiModel::Impl::SendMessage()
   SetHistoryInteraction(true);
 }
 
+void UiModel::Impl::SendStatusReply()
+{
+  const std::string profileId = m_CurrentChat.first;
+  const std::string chatId = m_CurrentChat.second;
+  std::wstring& entryStr = m_EntryStr[profileId][chatId];
+  int& entryPos = m_EntryPos[profileId][chatId];
+  if (entryStr.empty()) return;
+
+  if (!GetSelectMessageActive() || GetEditMessageActive())
+  {
+    SetPendingNotice("Sending to Status Updates is not supported.");
+    return;
+  }
+
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
+  const int messageOffset = m_MessageOffset[profileId][chatId];
+  auto it = std::next(messageVec.begin(), messageOffset);
+  if (it == messageVec.end()) return;
+
+  const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
+  auto mit = messages.find(*it);
+  if (mit == messages.end()) return;
+
+  const ChatMessage& status = mit->second;
+  if (status.isOutgoing)
+  {
+    SetPendingNotice("Replying to own status updates is not supported.");
+    return;
+  }
+
+  if (IsExpiredStatus(chatId, status))
+  {
+    SetPendingNotice("Replying to expired status updates is not supported.");
+    return;
+  }
+
+  // reply is sent to author chat, quoting the status update with its embedded thumbnail (never downloaded)
+  std::shared_ptr<SendMessageRequest> sendMessageRequest = std::make_shared<SendMessageRequest>();
+  sendMessageRequest->chatId = status.senderId;
+  sendMessageRequest->chatMessage.text = EntryStrToSendStr(entryStr);
+  sendMessageRequest->chatMessage.quotedId = status.id;
+  sendMessageRequest->chatMessage.quotedText = status.text;
+  sendMessageRequest->chatMessage.quotedSender = status.senderId;
+  sendMessageRequest->chatMessage.quotedChatId = chatId;
+  if (!status.fileInfo.empty())
+  {
+    const FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(status.fileInfo);
+    const MediaMeta& meta = MediaInfo::Get(profileId, status.id);
+    if (!meta.thumbPath.empty() && FileUtil::Exists(meta.thumbPath))
+    {
+      if (UiImage::IsVideoFile(fileInfo.filePath))
+      {
+        sendMessageRequest->chatMessage.quotedFilePath = "video:" + meta.thumbPath;
+      }
+      else if (UiImage::IsImageFile(fileInfo.filePath))
+      {
+        sendMessageRequest->chatMessage.quotedFilePath = "image:" + meta.thumbPath;
+      }
+    }
+  }
+
+  LOG_DEBUG("status reply %s to %s", status.id.c_str(), status.senderId.c_str());
+  SendProtocolRequest(profileId, sendMessageRequest);
+
+  entryStr.clear();
+  entryPos = 0;
+  SetSelectMessageActive(false);
+  UpdateEntry();
+
+  // continue in author chat to see the reply, like the official app, creating it on first message
+  // (existing chat opened as-is, i.e. not unarchived)
+  const std::pair<std::string, std::string> authorChat(profileId, status.senderId);
+  if (IsChatLockedHidden(profileId, status.senderId))
+  {
+    // hidden locked chat is not opened, sent notice shown in status updates
+    return;
+  }
+  else if (m_ChatSet[profileId].count(status.senderId) > 0)
+  {
+    GotoChat(authorChat);
+  }
+  else
+  {
+    OpenCreateChat(authorChat);
+  }
+}
+
 void UiModel::Impl::OnKeyOtherCommandsHelp()
 {
   AnyUserKeyInput();
@@ -244,7 +443,7 @@ void UiModel::Impl::EntryKeyHandler(wint_t p_Key)
   int& entryPos = m_EntryPos[profileId][chatId];
   std::wstring& entryStr = m_EntryStr[profileId][chatId];
 
-  const int messageCount = m_Messages[profileId][chatId].size();
+  const int messageCount = GetShownMessageVec(profileId, chatId).size();
   int& messageOffset = m_MessageOffset[profileId][chatId];
 
   if (p_Key == keyUp)
@@ -553,12 +752,22 @@ void UiModel::Impl::OnKeyNextChat()
 
   if (m_ChatVec.empty()) return;
 
-  ++m_CurrentChatIndex;
-  if (m_CurrentChatIndex >= (int)m_ChatVec.size())
+  // skip chats in collapsed sections
+  int index = m_CurrentChatIndex;
+  for (size_t i = 0; i < m_ChatVec.size(); ++i)
   {
-    m_CurrentChatIndex = 0;
+    ++index;
+    if (index >= (int)m_ChatVec.size())
+    {
+      index = 0;
+    }
+
+    if (!IsChatHidden(m_ChatVec.at(index).first, m_ChatVec.at(index).second)) break;
   }
 
+  if (IsChatHidden(m_ChatVec.at(index).first, m_ChatVec.at(index).second)) return;
+
+  m_CurrentChatIndex = index;
   m_CurrentChat = m_ChatVec.at(m_CurrentChatIndex);
   OnCurrentChatChanged();
   SetSelectMessageActive(false);
@@ -572,12 +781,22 @@ void UiModel::Impl::OnKeyPrevChat()
 
   if (m_ChatVec.empty()) return;
 
-  --m_CurrentChatIndex;
-  if (m_CurrentChatIndex < 0)
+  // skip chats in collapsed sections
+  int index = m_CurrentChatIndex;
+  for (size_t i = 0; i < m_ChatVec.size(); ++i)
   {
-    m_CurrentChatIndex = m_ChatVec.size() - 1;
+    --index;
+    if (index < 0)
+    {
+      index = m_ChatVec.size() - 1;
+    }
+
+    if (!IsChatHidden(m_ChatVec.at(index).first, m_ChatVec.at(index).second)) break;
   }
 
+  if (IsChatHidden(m_ChatVec.at(index).first, m_ChatVec.at(index).second)) return;
+
+  m_CurrentChatIndex = index;
   m_CurrentChat = m_ChatVec.at(m_CurrentChatIndex);
   OnCurrentChatChanged();
   SetSelectMessageActive(false);
@@ -597,6 +816,9 @@ void UiModel::Impl::OnKeyUnreadChat()
   for (size_t i = 0; i < m_ChatVec.size(); ++i)
   {
     const std::pair<std::string, std::string>& chat = m_ChatVec.at(i);
+    if (m_SectionCollapsed[ChatSectionArchived] &&
+        (GetChatSection(chat.first, chat.second) == ChatSectionArchived)) continue;
+
     const bool isUnread = GetChatIsUnread(chat.first, chat.second);
     if (isUnread)
     {
@@ -646,9 +868,15 @@ void UiModel::Impl::OnKeyPrevPage()
   std::string profileId = m_CurrentChat.first;
   std::string chatId = m_CurrentChat.second;
 
-  const int messageCount = m_Messages[profileId][chatId].size();
+  const int messageCount = GetShownMessageVec(profileId, chatId).size();
   int& messageOffset = m_MessageOffset[profileId][chatId];
   std::stack<int>& messageOffsetStack = m_MessageOffsetStack[profileId][chatId];
+
+  if (GetSelectMessageActive())
+  {
+    // page from the shown messages, not from the selected one
+    messageOffset = m_HistoryViewOffset[profileId][chatId];
+  }
 
   int addOffset = std::min(historyShowCount, std::max(messageCount - messageOffset - 1, 0));
   LOG_TRACE("count %d offset %d addoffset %d", messageCount, messageOffset, addOffset);
@@ -741,7 +969,7 @@ void UiModel::Impl::OnKeyHomeFetchNext()
   std::string profileId = m_CurrentChat.first;
   std::string chatId = m_CurrentChat.second;
 
-  const int messageCount = m_Messages[profileId][chatId].size();
+  const int messageCount = GetShownMessageVec(profileId, chatId).size();
   int& messageOffset = m_MessageOffset[profileId][chatId];
   std::stack<int>& messageOffsetStack = m_MessageOffsetStack[profileId][chatId];
 
@@ -770,7 +998,7 @@ void UiModel::Impl::HomeFetchNext(const std::string& p_ProfileId, const std::str
     {
       if (p_MsgCount > 0)
       {
-        const int messageCount = m_Messages[p_ProfileId][p_ChatId].size();
+        const int messageCount = GetShownMessageVec(p_ProfileId, p_ChatId).size();
         int& messageOffset = m_MessageOffset[p_ProfileId][p_ChatId];
         std::stack<int>& messageOffsetStack = m_MessageOffsetStack[p_ProfileId][p_ChatId];
 
@@ -834,8 +1062,11 @@ void UiModel::Impl::ResetMessageOffset()
 }
 
 void UiModel::Impl::MarkRead(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_MsgId,
-                             bool p_WasUnread)
+                             bool p_WasUnread, bool p_Opened /*= false*/)
 {
+  // Status updates are only marked read when opened (open / open_msg), not when shown
+  if (IsStatusChat(p_ChatId) && !p_Opened) return;
+
   // Generally only mark read if message was unread, except if protocol needs to know every view
   const bool markReadEveryView = HasProtocolFeature(p_ProfileId, FeatureMarkReadEveryView);
   if (!markReadEveryView && !p_WasUnread) return;
@@ -864,6 +1095,19 @@ void UiModel::Impl::MarkRead(const std::string& p_ProfileId, const std::string& 
     senderId = mit->second.senderId;
   }
 
+  if ((mit != messages.end()) && IsExpiredStatus(p_ChatId, mit->second))
+  {
+    // expired status updates are marked read locally only, no read receipt sent
+    if (p_WasUnread)
+    {
+      MessageCache::UpdateMessageIsRead(p_ProfileId, p_ChatId, p_MsgId, true);
+    }
+
+    UpdateChatInfoIsUnread(p_ProfileId, p_ChatId);
+    UpdateList();
+    return;
+  }
+
   std::shared_ptr<MarkMessageReadRequest> markMessageReadRequest = std::make_shared<MarkMessageReadRequest>();
   markMessageReadRequest->chatId = p_ChatId;
   markMessageReadRequest->msgId = p_MsgId;
@@ -880,6 +1124,11 @@ void UiModel::Impl::OnStatusUpdate(uint32_t p_Status)
   if (!m_Running) return;
 
   const bool isOnline = (p_Status & Status::FlagOnline);
+  if (isOnline)
+  {
+    // chat banner photo of chat opened before being online
+    RequestAvatar(m_CurrentChat.first, m_CurrentChat.second);
+  }
 
   // Ignore first transition to online status
   static bool wasEverOnline = false;
@@ -915,6 +1164,17 @@ void UiModel::Impl::DownloadAttachment(const std::string& p_ProfileId, const std
                                        const std::string& p_MsgId, const std::string& p_FileId,
                                        DownloadFileAction p_DownloadFileAction)
 {
+  {
+    // never download attachments of expired status updates, single point for all downloads
+    const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[p_ProfileId][p_ChatId];
+    auto mit = messages.find(p_MsgId);
+    if ((mit != messages.end()) && IsExpiredStatus(p_ChatId, mit->second))
+    {
+      LOG_DEBUG("skip download of expired status %s", p_MsgId.c_str());
+      return;
+    }
+  }
+
   std::shared_ptr<DownloadFileRequest> downloadFileRequest = std::make_shared<DownloadFileRequest>();
   downloadFileRequest->chatId = p_ChatId;
   downloadFileRequest->msgId = p_MsgId;
@@ -944,7 +1204,7 @@ void UiModel::Impl::OnKeyDeleteMsg()
 
   const std::string& profileId = m_CurrentChat.first;
   const std::string& chatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   int& messageOffset = m_MessageOffset[profileId][chatId];
 
   auto it = std::next(messageVec.begin(), messageOffset);
@@ -1008,6 +1268,7 @@ void UiModel::Impl::OnKeyArchiveChat()
 
   const std::string& profileId = m_CurrentChat.first;
   const std::string& chatId = m_CurrentChat.second;
+  if (IsStatusChat(chatId)) return; // status updates cannot be pinned or archived
 
   bool isArchived = m_ChatInfos[profileId][chatId].isArchived;
   std::shared_ptr<ArchiveChatRequest> archiveChatRequest = std::make_shared<ArchiveChatRequest>();
@@ -1022,6 +1283,7 @@ void UiModel::Impl::OnKeyPinChat()
 
   const std::string& profileId = m_CurrentChat.first;
   const std::string& chatId = m_CurrentChat.second;
+  if (IsStatusChat(chatId)) return; // status updates cannot be pinned or archived
 
   bool isPinned = m_ChatInfos[profileId][chatId].isPinned;
   std::shared_ptr<PinChatRequest> pinChatRequest = std::make_shared<PinChatRequest>();
@@ -1036,7 +1298,7 @@ void UiModel::Impl::OnKeyPinMsg()
 
   const std::string& profileId = m_CurrentChat.first;
   const std::string& chatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   const int messageOffset = m_MessageOffset[profileId][chatId];
 
   auto it = std::next(messageVec.begin(), messageOffset);
@@ -1063,11 +1325,350 @@ void UiModel::Impl::OnKeyPinMsg()
   SendProtocolRequest(profileId, pinMessageRequest);
 }
 
+void UiModel::Impl::MarkStatusOpened()
+{
+  if (!GetSelectMessageActive()) return;
+
+  const std::string profileId = m_CurrentChat.first;
+  const std::string chatId = m_CurrentChat.second;
+  if (!IsStatusChat(chatId)) return;
+
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
+  const int messageOffset = m_MessageOffset[profileId][chatId];
+  auto it = std::next(messageVec.begin(), messageOffset);
+  if (it == messageVec.end()) return;
+
+  const std::string msgId = *it;
+  const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
+  auto mit = messages.find(msgId);
+  if ((mit == messages.end()) || mit->second.isOutgoing || mit->second.isRead) return;
+
+  LOG_DEBUG("status opened %s", msgId.c_str());
+  MarkRead(profileId, chatId, msgId, true /*p_WasUnread*/, true /*p_Opened*/);
+}
+
+bool UiModel::Impl::IsStatusNew(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                const ChatMessage& p_ChatMessage)
+{
+  if (!IsStatusChat(p_ChatId) || p_ChatMessage.isOutgoing || p_ChatMessage.isRead) return false;
+
+  StatusSeen& statusSeen = GetStatusSeen(p_ProfileId);
+  if (p_ChatMessage.timeSent <= statusSeen.baseline) return false;
+
+  return (statusSeen.msgTimes.count(p_ChatMessage.id) == 0);
+}
+
+void UiModel::Impl::MarkStatusSeen(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                   const std::string& p_MsgId)
+{
+  const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[p_ProfileId][p_ChatId];
+  auto mit = messages.find(p_MsgId);
+  if ((mit == messages.end()) || !IsStatusNew(p_ProfileId, p_ChatId, mit->second)) return;
+
+  // seen in list only, no read receipt sent and message stays unread until opened
+  LOG_DEBUG("status seen %s", p_MsgId.c_str());
+  GetStatusSeen(p_ProfileId).msgTimes[p_MsgId] = mit->second.timeSent;
+  WriteStatusSeen(p_ProfileId);
+  UpdateChatInfoIsUnread(p_ProfileId, p_ChatId);
+  UpdateList();
+}
+
+UiModel::Impl::StatusSeen& UiModel::Impl::GetStatusSeen(const std::string& p_ProfileId)
+{
+  StatusSeen& statusSeen = m_StatusSeen[p_ProfileId];
+  if (statusSeen.loaded) return statusSeen;
+
+  statusSeen.loaded = true;
+  const std::string path = FileUtil::GetApplicationDir() + "/profiles/" + p_ProfileId + "/status_seen";
+  if (!FileUtil::Exists(path))
+  {
+    // first run, existing status updates are not new
+    statusSeen.baseline = TimeUtil::GetCurrentTimeMSec();
+    WriteStatusSeen(p_ProfileId);
+    return statusSeen;
+  }
+
+  std::istringstream stream(FileUtil::ReadFile(path));
+  std::string line;
+  while (std::getline(stream, line))
+  {
+    std::istringstream lineStream(line);
+    std::string key;
+    int64_t timeSent = 0;
+    if (!(lineStream >> key >> timeSent)) continue;
+
+    if (key == "baseline")
+    {
+      statusSeen.baseline = timeSent;
+    }
+    else
+    {
+      statusSeen.msgTimes[key] = timeSent;
+    }
+  }
+
+  return statusSeen;
+}
+
+void UiModel::Impl::WriteStatusSeen(const std::string& p_ProfileId)
+{
+  // drop entries older than 30 days, raising baseline to the same cutoff
+  static const int64_t pruneMSec = 30 * 24 * 60 * 60 * 1000LL;
+  StatusSeen& statusSeen = m_StatusSeen[p_ProfileId];
+  const int64_t cutoff = TimeUtil::GetCurrentTimeMSec() - pruneMSec;
+  statusSeen.baseline = std::max(statusSeen.baseline, cutoff);
+  for (auto it = statusSeen.msgTimes.begin(); it != statusSeen.msgTimes.end(); /* incremented in loop */)
+  {
+    it = (it->second <= statusSeen.baseline) ? statusSeen.msgTimes.erase(it) : std::next(it);
+  }
+
+  std::string data = "baseline " + std::to_string(statusSeen.baseline) + "\n";
+  for (const auto& msgTime : statusSeen.msgTimes)
+  {
+    data += msgTime.first + " " + std::to_string(msgTime.second) + "\n";
+  }
+
+  const std::string path = FileUtil::GetApplicationDir() + "/profiles/" + p_ProfileId + "/status_seen";
+  const std::string tmpPath = path + ".tmp";
+  FileUtil::WriteFile(tmpPath, data);
+  FileUtil::Move(tmpPath, path);
+}
+
+std::unordered_set<std::string>& UiModel::Impl::GetLockedChats(const std::string& p_ProfileId)
+{
+  std::unordered_set<std::string>& lockedChats = m_LockedChats[p_ProfileId];
+  if (m_LockedChatsLoaded.insert(p_ProfileId).second)
+  {
+    const std::string path = FileUtil::GetApplicationDir() + "/profiles/" + p_ProfileId + "/locked_chats";
+    if (FileUtil::Exists(path))
+    {
+      std::istringstream stream(FileUtil::ReadFile(path));
+      std::string chatId;
+      while (std::getline(stream, chatId))
+      {
+        if (!chatId.empty())
+        {
+          lockedChats.insert(chatId);
+        }
+      }
+    }
+
+    LOG_DEBUG("locked chats loaded %d", (int)lockedChats.size());
+  }
+
+  return lockedChats;
+}
+
+void UiModel::Impl::WriteLockedChats(const std::string& p_ProfileId)
+{
+  std::string data;
+  for (const auto& chatId : GetLockedChats(p_ProfileId))
+  {
+    data += chatId + "\n";
+  }
+
+  const std::string path = FileUtil::GetApplicationDir() + "/profiles/" + p_ProfileId + "/locked_chats";
+  const std::string tmpPath = path + ".tmp";
+  FileUtil::WriteFile(tmpPath, data);
+  FileUtil::Move(tmpPath, path);
+}
+
+bool UiModel::Impl::IsChatLocked(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  return GetLockedChats(p_ProfileId).count(p_ChatId) > 0;
+}
+
+bool UiModel::Impl::IsChatLockedHidden(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  return !m_LockedVisible && IsChatLocked(p_ProfileId, p_ChatId);
+}
+
+bool UiModel::Impl::GetLockedVisible()
+{
+  return m_LockedVisible;
+}
+
+void UiModel::Impl::HideLockedChats()
+{
+  m_LockedVisible = false;
+  if ((m_CurrentChat != s_ChatNone) && IsChatLockedHidden(m_CurrentChat.first, m_CurrentChat.second))
+  {
+    if (SelectNearestVisibleChat())
+    {
+      OnCurrentChatChanged();
+      SetSelectMessageActive(false);
+    }
+  }
+
+  UpdateList();
+  ReinitView();
+}
+
+void UiModel::Impl::CheckSecretCode(const std::string& p_Code)
+{
+  const std::string profileId = GetDefaultProfileId();
+  if (profileId.empty()) return;
+
+  // checked locally against the hash synced from whatsapp, the code itself is never logged nor stored
+  std::shared_ptr<CheckSecretCodeRequest> checkSecretCodeRequest = std::make_shared<CheckSecretCodeRequest>();
+  checkSecretCodeRequest->code = p_Code;
+  SendProtocolRequest(profileId, checkSecretCodeRequest);
+  ReinitView();
+}
+
+bool UiModel::Impl::IsBannerChat(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  static const bool chatBannerEnabled = UiConfig::GetBool("chat_banner_enabled");
+  return chatBannerEnabled && !p_ProfileId.empty() && !p_ChatId.empty() && !IsStatusChat(p_ChatId);
+}
+
+bool UiModel::Impl::GetChatBanner(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                  ChatBanner& p_ChatBanner)
+{
+  if (!IsBannerChat(p_ProfileId, p_ChatId)) return false;
+
+  p_ChatBanner = ChatBanner();
+  p_ChatBanner.isGroup = GetChatInfoIsGroup(p_ProfileId, p_ChatId);
+  p_ChatBanner.name = GetContactListName(p_ProfileId, p_ChatId, true /*p_AllowId*/, true /*p_AllowAlias*/);
+  p_ChatBanner.isMuted = m_ChatInfos[p_ProfileId][p_ChatId].isMuted;
+  if (p_ChatBanner.isGroup)
+  {
+    p_ChatBanner.memberCount = (int)GetGroupMembers(p_ProfileId, p_ChatId).size();
+  }
+  else
+  {
+    p_ChatBanner.phone = GetContactPhone(p_ProfileId, p_ChatId);
+    p_ChatBanner.presence = GetChatPresence(p_ProfileId, p_ChatId, p_ChatBanner.presenceType);
+    auto countIt = m_StatusCounts[p_ProfileId].find(p_ChatId);
+    if (countIt != m_StatusCounts[p_ProfileId].end())
+    {
+      p_ChatBanner.statusTotal = countIt->second.first;
+      p_ChatBanner.statusNew = countIt->second.second;
+    }
+  }
+
+  const std::string avatarPath = GetAvatarBasePath(p_ProfileId, p_ChatId) + ".jpg";
+  if (FileUtil::Exists(avatarPath))
+  {
+    p_ChatBanner.avatarPath = avatarPath;
+  }
+
+  return true;
+}
+
+std::string UiModel::Impl::GetAvatarBasePath(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  return FileUtil::GetApplicationDir() + "/profiles/" + p_ProfileId + "/avatars/" + p_ChatId;
+}
+
+void UiModel::Impl::RequestAvatar(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  if (!IsBannerChat(p_ProfileId, p_ChatId)) return;
+
+  // requested at most once per session, and only when online (offline requests would only fail)
+  if (m_AvatarRequested[p_ProfileId].count(p_ChatId) > 0) return;
+
+  if (!(Status::Get(Status::FlagOnline) & Status::FlagOnline)) return;
+
+  m_AvatarRequested[p_ProfileId].insert(p_ChatId);
+
+  // checked against WhatsApp at most once per 24 hours, by modification time of photo id file
+  static const time_t checkIntervalSec = 24 * 60 * 60;
+  const std::string basePath = GetAvatarBasePath(p_ProfileId, p_ChatId);
+  struct stat idStat;
+  if ((stat((basePath + ".id").c_str(), &idStat) == 0) && ((time(nullptr) - idStat.st_mtime) < checkIntervalSec))
+  {
+    return;
+  }
+
+  std::shared_ptr<GetAvatarRequest> getAvatarRequest = std::make_shared<GetAvatarRequest>();
+  getAvatarRequest->chatId = p_ChatId;
+  getAvatarRequest->basePath = basePath;
+  SendProtocolRequest(p_ProfileId, getAvatarRequest);
+}
+
+void UiModel::Impl::OpenAvatar()
+{
+  const std::string profileId = m_CurrentChat.first;
+  const std::string chatId = m_CurrentChat.second;
+  if (!IsBannerChat(profileId, chatId)) return;
+
+  const std::string basePath = GetAvatarBasePath(profileId, chatId);
+  if (FileUtil::Exists(basePath + ".full.jpg"))
+  {
+    OnKeyOpenAttachment(basePath + ".full.jpg");
+    return;
+  }
+
+  if (!FileUtil::Exists(basePath + ".jpg"))
+  {
+    SetPendingNotice("No profile photo.");
+    return;
+  }
+
+  // full size photo is fetched on first open, and opened when stored
+  LOG_DEBUG("avatar open request %s", chatId.c_str());
+  m_AvatarOpenChat = m_CurrentChat;
+  std::shared_ptr<GetAvatarRequest> getAvatarRequest = std::make_shared<GetAvatarRequest>();
+  getAvatarRequest->chatId = chatId;
+  getAvatarRequest->basePath = basePath;
+  getAvatarRequest->isFull = true;
+  SendProtocolRequest(profileId, getAvatarRequest);
+}
+
+void UiModel::Impl::UpdateStatusCounts(const std::string& p_ProfileId, const std::string& p_ContactId)
+{
+  if (!IsBannerChat(p_ProfileId, p_ContactId) || GetChatInfoIsGroup(p_ProfileId, p_ContactId)) return;
+
+  // status updates of last 24 hours from contact, counted from cache (nothing downloaded)
+  static const std::string statusChatId = "status@broadcast";
+  static const int fetchLimit = 50;
+  const std::vector<ChatMessage> statuses =
+    MessageCache::FetchSenderMessagesSync(p_ProfileId, statusChatId, p_ContactId,
+                                          std::numeric_limits<int64_t>::max(), fetchLimit);
+  const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[p_ProfileId][statusChatId];
+  int total = 0;
+  int countNew = 0;
+  for (const auto& status : statuses)
+  {
+    if (status.isOutgoing || IsExpiredStatus(statusChatId, status)) continue;
+
+    // prefer loaded message, which has the latest read state
+    auto mit = messages.find(status.id);
+    const ChatMessage& current = (mit != messages.end()) ? mit->second : status;
+    ++total;
+    countNew += IsStatusNew(p_ProfileId, statusChatId, current) ? 1 : 0;
+  }
+
+  m_StatusCounts[p_ProfileId][p_ContactId] = std::make_pair(total, countNew);
+}
+
+bool UiModel::Impl::HasStatusUpdates(const std::string& p_ProfileId, const std::string& p_ContactId)
+{
+  static const std::string statusChatId = "status@broadcast";
+  return !MessageCache::FetchSenderMessagesSync(p_ProfileId, statusChatId, p_ContactId,
+                                                std::numeric_limits<int64_t>::max(), 1).empty();
+}
+
+void UiModel::Impl::SetStatusReturnChat(const std::pair<std::string, std::string>& p_Chat)
+{
+  m_StatusReturnChat = p_Chat;
+}
+
+std::pair<std::string, std::string> UiModel::Impl::TakeStatusReturnChat()
+{
+  std::pair<std::string, std::string> chat = m_StatusReturnChat;
+  m_StatusReturnChat = std::pair<std::string, std::string>();
+  return chat;
+}
+
 void UiModel::Impl::OnKeyOpenMsg()
 {
   AnyUserKeyInput();
 
   if (!GetSelectMessageActive() || GetEditMessageActive()) return;
+
+  MarkStatusOpened();
 
   static const std::string openCmd = []()
   {
@@ -1082,7 +1683,7 @@ void UiModel::Impl::OnKeyOpenMsg()
 
   const std::string profileId = m_CurrentChat.first;
   const std::string chatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   const int messageOffset = m_MessageOffset[profileId][chatId];
   auto it = std::next(messageVec.begin(), messageOffset);
   if (it == messageVec.end()) return;
@@ -1118,7 +1719,7 @@ bool UiModel::Impl::GetMessageAttachmentPath(std::string& p_FilePath, DownloadFi
 
   std::string profileId = m_CurrentChat.first;
   std::string chatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   const int messageOffset = m_MessageOffset[profileId][chatId];
   const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
 
@@ -1149,6 +1750,10 @@ bool UiModel::Impl::GetMessageAttachmentPath(std::string& p_FilePath, DownloadFi
     p_FilePath = fileInfo.filePath;
     return true;
   }
+  else if (IsExpiredStatus(chatId, mit->second))
+  {
+    SetPendingNotice("Expired status, attachment not available.");
+  }
   else if (UiModel::Impl::IsAttachmentDownloadable(fileInfo, true /*p_AllowRetryFailed*/))
   {
     DownloadAttachment(profileId, chatId, msgId, fileInfo.fileId, p_DownloadFileAction);
@@ -1164,7 +1769,14 @@ void UiModel::Impl::OnKeyOpenAttachment(std::string p_FilePath /*= std::string()
   AnyUserKeyInput();
   if (p_FilePath.empty())
   {
-    // user-triggered call
+    // user-triggered call, without selected message it opens the chat profile photo
+    if (!GetSelectMessageActive())
+    {
+      OpenAvatar();
+      return;
+    }
+
+    MarkStatusOpened();
     if (!GetMessageAttachmentPath(p_FilePath, DownloadFileActionOpen)) return;
   }
   else
@@ -1260,7 +1872,7 @@ void UiModel::Impl::OnKeyOpenLink()
 
   std::string profileId = m_CurrentChat.first;
   std::string chatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   const int messageOffset = m_MessageOffset[profileId][chatId];
   const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
 
@@ -1618,6 +2230,68 @@ void UiModel::Impl::OpenCreateChat(const std::pair<std::string, std::string>& p_
   ReinitView();
 }
 
+std::string UiModel::Impl::GetDefaultProfileId()
+{
+  // profile of current chat, or first profile when no chat is open
+  if (!m_CurrentChat.first.empty()) return m_CurrentChat.first;
+
+  return m_Protocols.empty() ? std::string() : m_Protocols.begin()->first;
+}
+
+void UiModel::Impl::OpenChatByPhone(const std::string& p_ProfileId, const std::string& p_Phone,
+                                    const std::string& p_Text)
+{
+  if (p_ProfileId.empty()) return;
+
+  // existing chat is opened without asking WhatsApp
+  const std::string chatId = p_Phone + "@s.whatsapp.net";
+  if (IsChatLockedHidden(p_ProfileId, chatId))
+  {
+    SetPendingNotice("This chat is locked.");
+    ReinitView();
+    return;
+  }
+
+  if (m_ChatInfos[p_ProfileId].count(chatId))
+  {
+    OpenCreateChat(std::make_pair(p_ProfileId, chatId));
+    ApplyLinkText(p_ProfileId, chatId, p_Text);
+    return;
+  }
+
+  if (!(Status::Get(Status::FlagOnline) & Status::FlagOnline))
+  {
+    SetPendingNotice("Not connected, please try again later.");
+    ReinitView();
+    return;
+  }
+
+  LOG_TRACE("create chat by phone %s", p_Phone.c_str());
+  m_PendingLinkText[p_ProfileId][p_Phone] = p_Text;
+  std::shared_ptr<CreateChatRequest> createChatRequest = std::make_shared<CreateChatRequest>();
+  createChatRequest->phone = p_Phone;
+  SendProtocolRequest(p_ProfileId, createChatRequest);
+  ReinitView();
+}
+
+void UiModel::Impl::ApplyLinkText(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                  const std::string& p_Text)
+{
+  if (p_Text.empty()) return;
+
+  // link text is only a draft, an existing draft is never replaced
+  std::wstring& entryStr = m_EntryStr[p_ProfileId][p_ChatId];
+  if (!entryStr.empty())
+  {
+    SetPendingNotice("Draft kept, link text not inserted.");
+    return;
+  }
+
+  entryStr = StrUtil::ToWString(p_Text);
+  m_EntryPos[p_ProfileId][p_ChatId] = (int)entryStr.size();
+  UpdateEntry();
+}
+
 void UiModel::Impl::FetchCachedMessage(const std::string& p_ProfileId, const std::string& p_ChatId,
                                        const std::string& p_MsgId)
 {
@@ -1716,8 +2390,6 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
 
             m_ChatInfos[profileId][chatInfo.id] = chatInfo;
 
-            if (chatInfo.isArchived) continue;
-
             if (m_ChatSet[profileId].insert(chatInfo.id).second)
             {
               m_ChatVec.push_back(std::make_pair(profileId, chatInfo.id));
@@ -1743,7 +2415,6 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
           bool hasNewMessage = false;
           const std::string& chatId = newMessagesNotify->chatId;
           if (IsChatForceHidden(chatId)) return;
-          if (m_ChatInfos[profileId].count(chatId) && m_ChatInfos[profileId][chatId].isArchived) return;
 
           std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
           std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
@@ -1793,9 +2464,10 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
             int& messageOffset = m_MessageOffset[profileId][chatId];
             if ((profileId == m_CurrentChat.first) && (chatId == m_CurrentChat.second))
             {
-              if (GetSelectMessageActive() && (messageOffset < (int)messageVec.size()))
+              const std::vector<std::string>& shownMessageVec = GetShownMessageVec(profileId, chatId);
+              if (GetSelectMessageActive() && (messageOffset < (int)shownMessageVec.size()))
               {
-                currentMessageId = messageVec[messageOffset];
+                currentMessageId = shownMessageVec[messageOffset];
               }
             }
 
@@ -1807,14 +2479,17 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
             });
             // *INDENT-ON*
 
+            RebuildStatusFilter(profileId, chatId);
+
             if ((profileId == m_CurrentChat.first) && (chatId == m_CurrentChat.second))
             {
               if (!currentMessageId.empty())
               {
-                auto it = std::find(messageVec.begin(), messageVec.end(), currentMessageId);
-                if (it != messageVec.end())
+                const std::vector<std::string>& shownMessageVec = GetShownMessageVec(profileId, chatId);
+                auto it = std::find(shownMessageVec.begin(), shownMessageVec.end(), currentMessageId);
+                if (it != shownMessageVec.end())
                 {
-                  messageOffset = it - messageVec.begin();
+                  messageOffset = it - shownMessageVec.begin();
                 }
               }
 
@@ -1827,6 +2502,25 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
             }
 
             SetHistoryInteraction(false);
+          }
+
+          if (IsStatusChat(chatId))
+          {
+            bool currentContactStatus = false;
+            for (const auto& chatMessage : chatMessages)
+            {
+              QueueStatusPrefetch(profileId, chatId, chatMessage.id);
+              currentContactStatus = currentContactStatus || IsCurrentChat(profileId, chatMessage.senderId);
+            }
+
+            ProcessStatusPrefetch();
+
+            // new status update of contact in current chat, refresh banner
+            if (currentContactStatus && !newMessagesNotify->cached)
+            {
+              UpdateStatusCounts(profileId, m_CurrentChat.second);
+              UpdateHistory();
+            }
           }
 
           const std::pair<std::string, std::string>& nextChat = GetNextChat();
@@ -1861,6 +2555,32 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
         std::shared_ptr<SendMessageNotify> sendMessageNotify = std::static_pointer_cast<SendMessageNotify>(
           p_ServiceMessage);
         LOG_TRACE(sendMessageNotify->success ? "send ok" : "send failed");
+        const ChatMessage& chatMessage = sendMessageNotify->chatMessage;
+        if (IsStatusChat(chatMessage.quotedChatId))
+        {
+          const std::string name = GetContactName(profileId, sendMessageNotify->chatId);
+          if (sendMessageNotify->success)
+          {
+            // only notify if still in status updates, otherwise the reply is shown in author chat
+            if (IsStatusChat(m_CurrentChat.second))
+            {
+              SetPendingNotice("Reply sent to " + name + ".");
+            }
+          }
+          else
+          {
+            // restore reply text in status entry, unless user typed something else meanwhile
+            std::wstring& entryStr = m_EntryStr[profileId][chatMessage.quotedChatId];
+            if (entryStr.empty())
+            {
+              entryStr = StrUtil::ToWString(chatMessage.text);
+              m_EntryPos[profileId][chatMessage.quotedChatId] = (int)entryStr.size();
+              UpdateEntry();
+            }
+
+            SetPendingNotice("Reply to " + name + " failed, please try again from Status Updates.");
+          }
+        }
       }
       break;
 
@@ -1887,20 +2607,22 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
 
           std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
           messages.erase(msgId);
+          RebuildStatusFilter(profileId, chatId);
 
           if (GetSelectMessageActive())
           {
             int& messageOffset = m_MessageOffset[profileId][chatId];
-            if (messageVec.empty())
+            const std::vector<std::string>& shownMessageVec = GetShownMessageVec(profileId, chatId);
+            if (shownMessageVec.empty())
             {
               messageOffset = 0;
               SetSelectMessageActive(false);
             }
             else
             {
-              if ((messageOffset + 1) > (int)messageVec.size())
+              if ((messageOffset + 1) > (int)shownMessageVec.size())
               {
-                messageOffset = (int)messageVec.size() - 1;
+                messageOffset = (int)shownMessageVec.size() - 1;
               }
             }
           }
@@ -1936,12 +2658,22 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
         std::string chatId = newMessageStatusNotify->chatId;
         std::string msgId = newMessageStatusNotify->msgId;
         bool isRead = newMessageStatusNotify->isRead;
-        LOG_TRACE("new read status %s is %s", msgId.c_str(), (isRead ? "read" : "unread"));
+        int deliveryStatus = newMessageStatusNotify->deliveryStatus;
+        LOG_TRACE("new read status %s is %s delivery %d", msgId.c_str(), (isRead ? "read" : "unread"), deliveryStatus);
         std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
         auto mit = messages.find(msgId);
         if (mit != messages.end())
         {
-          mit->second.isRead = isRead;
+          if (deliveryStatus == DeliveryStatusUnknown)
+          {
+            mit->second.isRead = isRead;
+          }
+          else
+          {
+            // delivery status (and read state of outgoing messages) never decreases
+            mit->second.deliveryStatus = std::max(mit->second.deliveryStatus, deliveryStatus);
+            mit->second.isRead = mit->second.isRead || isRead;
+          }
         }
 
         UpdateChatInfoIsUnread(profileId, chatId);
@@ -1983,6 +2715,12 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
         if (mit != messages.end())
         {
           mit->second.fileInfo = fileInfoStr;
+        }
+
+        if (!m_StatusPrefetchInFlightId.empty() && (msgId == m_StatusPrefetchInFlightId))
+        {
+          m_StatusPrefetchInFlightId.clear();
+          ProcessStatusPrefetch();
         }
 
         if (downloadFileAction == DownloadFileActionOpen)
@@ -2046,6 +2784,10 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
           m_UsersTyping[profileId][chatId].erase(userId);
         }
         UpdateStatus();
+        if (IsCurrentChat(profileId, chatId) && IsBannerChat(profileId, chatId))
+        {
+          UpdateHistory(); // banner presence
+        }
       }
       break;
 
@@ -2064,6 +2806,10 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
           m_UserTimeSeen[profileId][userId] = timeSeen;
         }
         UpdateStatus();
+        if (IsCurrentChat(profileId, userId) && IsBannerChat(profileId, userId))
+        {
+          UpdateHistory(); // banner presence
+        }
       }
       break;
 
@@ -2071,7 +2817,36 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
       {
         std::shared_ptr<CreateChatNotify> createChatNotify =
           std::static_pointer_cast<CreateChatNotify>(p_ServiceMessage);
-        if (createChatNotify->success)
+        const std::string& phone = createChatNotify->phone;
+        std::string linkText;
+        if (!phone.empty())
+        {
+          linkText = m_PendingLinkText[profileId][phone];
+          m_PendingLinkText[profileId].erase(phone);
+          if (createChatNotify->result == CreateChatResultNotOnWhatsApp)
+          {
+            SetPendingNotice("+" + phone + " is not on WhatsApp.");
+          }
+          else if (createChatNotify->result != CreateChatResultOk)
+          {
+            SetPendingNotice("Could not check +" + phone + ", please try again.");
+          }
+        }
+
+        if (createChatNotify->success && !phone.empty() && IsChatLockedHidden(profileId, createChatNotify->chatInfo.id))
+        {
+          SetPendingNotice("This chat is locked.");
+        }
+        else if (createChatNotify->success && !phone.empty() &&
+                 m_ChatInfos[profileId].count(createChatNotify->chatInfo.id))
+        {
+          // number resolved to an existing chat, keep its chat info
+          const std::string chatId = createChatNotify->chatInfo.id;
+          LOG_TRACE("chat exists %s", chatId.c_str());
+          OpenCreateChat(std::make_pair(profileId, chatId));
+          ApplyLinkText(profileId, chatId, linkText);
+        }
+        else if (createChatNotify->success)
         {
           const ChatInfo& chatInfo = createChatNotify->chatInfo;
           LOG_TRACE("chat created %s", chatInfo.id.c_str());
@@ -2088,6 +2863,7 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
           SortChats();
           OnCurrentChatChanged();
           SetSelectMessageActive(false);
+          ApplyLinkText(profileId, chatInfo.id, linkText);
         }
       }
       break;
@@ -2127,6 +2903,112 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
           {
             SortChats();
             OnCurrentChatChanged();
+          }
+        }
+      }
+      break;
+
+    case UpdateLockedNotifyType:
+      {
+        std::shared_ptr<UpdateLockedNotify> updateLockedNotify =
+          std::static_pointer_cast<UpdateLockedNotify>(p_ServiceMessage);
+        const std::string& chatId = updateLockedNotify->chatId;
+        if (chatId.empty())
+        {
+          LOG_DEBUG("chat lock settings has code %d", updateLockedNotify->isLocked);
+          break;
+        }
+
+        std::unordered_set<std::string>& lockedChats = GetLockedChats(profileId);
+        const bool changed = updateLockedNotify->isLocked ? lockedChats.insert(chatId).second
+                                                          : (lockedChats.erase(chatId) > 0);
+        if (!changed) break;
+
+        LOG_DEBUG("locked notify %s is %d count %d", chatId.c_str(), updateLockedNotify->isLocked,
+                  (int)lockedChats.size());
+        WriteLockedChats(profileId);
+        SortChats();
+        if (IsCurrentChat(profileId, chatId) && IsChatHidden(profileId, chatId) && SelectNearestVisibleChat())
+        {
+          OnCurrentChatChanged();
+          SetSelectMessageActive(false);
+        }
+
+        UpdateList();
+      }
+      break;
+
+    case OfflineSyncNotifyType:
+      {
+        std::shared_ptr<OfflineSyncNotify> offlineSyncNotify =
+          std::static_pointer_cast<OfflineSyncNotify>(p_ServiceMessage);
+        if (offlineSyncNotify->isStarted)
+        {
+          // new start (or quick reconnect) keeps pending chats and restarts the max hold time
+          m_OfflineSyncStartTime[profileId] = TimeUtil::GetCurrentTimeMSec();
+          m_OfflineSyncEndTime.erase(profileId);
+          LOG_DEBUG("offline sync started, holding notifications");
+        }
+        else if (m_OfflineSyncStartTime.count(profileId) > 0)
+        {
+          m_OfflineSyncEndTime[profileId] = TimeUtil::GetCurrentTimeMSec();
+          LOG_DEBUG("offline sync completed, pending chats %d",
+                    (int)m_OfflineSyncPendingChats[profileId].size());
+        }
+      }
+      break;
+
+    case CheckSecretCodeNotifyType:
+      {
+        std::shared_ptr<CheckSecretCodeNotify> checkSecretCodeNotify =
+          std::static_pointer_cast<CheckSecretCodeNotify>(p_ServiceMessage);
+        LOG_DEBUG("secret code result %d", checkSecretCodeNotify->result);
+        if (checkSecretCodeNotify->result == SecretCodeResultOk)
+        {
+          m_LockedVisible = true;
+          SortChats();
+          UpdateList();
+        }
+        else if (checkSecretCodeNotify->result == SecretCodeResultNoCode)
+        {
+          SetPendingNotice("Set a secret code for locked chats in WhatsApp on your phone.");
+        }
+        else
+        {
+          SetPendingNotice("Wrong secret code.");
+        }
+      }
+      break;
+
+    case NewAvatarNotifyType:
+      {
+        std::shared_ptr<NewAvatarNotify> newAvatarNotify =
+          std::static_pointer_cast<NewAvatarNotify>(p_ServiceMessage);
+        const std::string& chatId = newAvatarNotify->chatId;
+        LOG_DEBUG("avatar notify %s full %d result %d", chatId.c_str(), newAvatarNotify->isFull,
+                  newAvatarNotify->result);
+        if (!newAvatarNotify->isFull)
+        {
+          if (IsCurrentChat(profileId, chatId))
+          {
+            UpdateHistory();
+          }
+        }
+        else if ((m_AvatarOpenChat == std::make_pair(profileId, chatId)) && IsCurrentChat(profileId, chatId))
+        {
+          m_AvatarOpenChat = std::pair<std::string, std::string>();
+          if (newAvatarNotify->result == AvatarResultOk)
+          {
+            OnKeyOpenAttachment(GetAvatarBasePath(profileId, chatId) + ".full.jpg");
+          }
+          else if (newAvatarNotify->result == AvatarResultNone)
+          {
+            SetPendingNotice("No profile photo.");
+            UpdateHistory();
+          }
+          else
+          {
+            SetPendingNotice("Profile photo download failed, please try again.");
           }
         }
       }
@@ -2235,6 +3117,14 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
         std::string chatId = updatePinNotify->chatId;
         bool isPinned = updatePinNotify->isPinned;
         int64_t lastMessageTime = updatePinNotify->timePinned;
+        if (!updatePinNotify->success)
+        {
+          LOG_WARNING("pin request failed %s %s", chatId.c_str(), (isPinned ? "pin" : "unpin"));
+          SetPendingNotice(std::string(isPinned ? "Pin" : "Unpin") +
+                           " failed, please try again shortly.");
+          break;
+        }
+
         LOG_TRACE("pin notify %s is %s", chatId.c_str(), (isPinned ? "pinned" : "unpinned"));
         if (!m_ChatInfos[profileId].count(chatId)) break;
 
@@ -2260,35 +3150,24 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
         if (!m_ChatInfos[profileId].count(chatId)) break;
 
         m_ChatInfos[profileId][chatId].isArchived = isArchived;
+        if (m_ChatSet[profileId].insert(chatId).second)
+        {
+          m_ChatVec.push_back(std::make_pair(profileId, chatId));
+        }
+
         if (isArchived)
         {
-          m_ChatSet[profileId].erase(chatId);
-          m_ChatVec.erase(
-            std::remove(m_ChatVec.begin(), m_ChatVec.end(), std::make_pair(profileId, chatId)),
-            m_ChatVec.end());
-
-          if ((m_CurrentChat.first == profileId) && (m_CurrentChat.second == chatId))
+          // chat moves to archived section, select a visible chat if it is now hidden
+          SortChats();
+          if ((m_CurrentChat.first == profileId) && (m_CurrentChat.second == chatId) &&
+              IsChatHidden(profileId, chatId) && SelectNearestVisibleChat())
           {
-            if (!m_ChatVec.empty())
-            {
-              m_CurrentChat = m_ChatVec.at(NumUtil::Bound(0, m_CurrentChatIndex, ((int)m_ChatVec.size() - 1)));
-            }
-            else
-            {
-              m_CurrentChat = s_ChatNone;
-            }
-            SortChats();
             OnCurrentChatChanged();
             SetSelectMessageActive(false);
           }
         }
         else
         {
-          if (m_ChatSet[profileId].insert(chatId).second)
-          {
-            m_ChatVec.push_back(std::make_pair(profileId, chatId));
-          }
-
           // request fresh chat details to get correct lastMessageTime
           std::shared_ptr<GetChatsRequest> getChatsRequest = std::make_shared<GetChatsRequest>();
           getChatsRequest->chatIds.insert(chatId);
@@ -2334,6 +3213,10 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
         }
         m_GroupMembers[profileId][chatId] = memberIds;
         m_GroupMembersUpdateTime = TimeUtil::GetCurrentTimeMSec();
+        if (IsCurrentChat(profileId, chatId))
+        {
+          UpdateHistory(); // banner member count
+        }
       }
       break;
 
@@ -2376,7 +3259,7 @@ void UiModel::Impl::MessageHandler(std::shared_ptr<ServiceMessage> p_ServiceMess
         LOG_TRACE("find message notify %s %s", (success ? "found" : "not found"), msgId.c_str());
         if (!msgId.empty())
         {
-          const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+          const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
           int& messageOffset = m_MessageOffset[profileId][chatId];
           std::stack<int>& messageOffsetStack = m_MessageOffsetStack[profileId][chatId];
 
@@ -2433,6 +3316,12 @@ bool UiModel::Impl::Process()
   }
 
   ProcessTimers();
+  ProcessStatusVideoCleanup();
+
+  if (MediaInfo::TakePosterUpdated())
+  {
+    UpdateHistory();
+  }
 
   SetTyping("", "", false);
   m_View->Draw();
@@ -2448,6 +3337,10 @@ void UiModel::Impl::ProcessTimers()
   if (elapsedMs > 200)
   {
     lastTimeMs = nowTimeMs;
+
+    StartStatusVideoCleanup();
+    ProcessStatusPrefetch();
+    ProcessOfflineSyncFlush();
 
     static const int autoSelectChatTimeoutSec = UiConfig::GetNum("auto_select_chat_timeout_sec");
     if (!IsCurrentChatSet() && (autoSelectChatTimeoutSec != 0) && (m_LastSyncMessageTime != 0))
@@ -2473,11 +3366,13 @@ void UiModel::Impl::SortChats()
     const ChatInfo& lhsChatInfo = m_ChatInfos[lhs.first][lhs.second];
     const ChatInfo& rhsChatInfo = m_ChatInfos[rhs.first][rhs.second];
 
-    // pinned are listed first
-    if (lhsChatInfo.isPinned > rhsChatInfo.isPinned) return true;
-    if (lhsChatInfo.isPinned < rhsChatInfo.isPinned) return false;
+    // pinned are listed first, archived last
+    const int lhsSection = GetChatSection(lhs.first, lhs.second);
+    const int rhsSection = GetChatSection(rhs.first, rhs.second);
+    if (lhsSection < rhsSection) return true;
+    if (lhsSection > rhsSection) return false;
 
-    if (!mutedPositionByTimestamp)
+    if (!mutedPositionByTimestamp && (lhsSection != ChatSectionArchived))
     {
       // non-muted are listed first
       if (lhsChatInfo.isMuted < rhsChatInfo.isMuted) return true;
@@ -2495,11 +3390,17 @@ void UiModel::Impl::SortChats()
     return false;
   });
 
+  std::fill(std::begin(m_SectionChatCount), std::end(m_SectionChatCount), 0);
+  for (const auto& chat : m_ChatVec)
+  {
+    ++m_SectionChatCount[GetChatSection(chat.first, chat.second)];
+  }
+
   if (!m_ChatVec.empty())
   {
     if (m_CurrentChatIndex == -1)
     {
-      m_CurrentChat = m_ChatVec.at(0);
+      m_CurrentChat = m_ChatVec.at(GetFirstChatIndex());
       OnCurrentChatChanged();
     }
     else
@@ -2578,6 +3479,12 @@ void UiModel::Impl::UpdateChatInfoLastMessageTime(const std::string& p_ProfileId
 
 void UiModel::Impl::UpdateChatInfoIsUnread(const std::string& p_ProfileId, const std::string& p_ChatId)
 {
+  if (IsStatusChat(p_ChatId))
+  {
+    // load (or create on first run) seen status updates before any new status arrives
+    GetStatusSeen(p_ProfileId);
+  }
+
   const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[p_ProfileId][p_ChatId];
   const std::string lastMessageId = GetLastMessageId(p_ProfileId, p_ChatId);
   if (lastMessageId.empty()) return;
@@ -2585,13 +3492,22 @@ void UiModel::Impl::UpdateChatInfoIsUnread(const std::string& p_ProfileId, const
   bool isRead = true;
   const ChatMessage& chatMessage = messages.at(lastMessageId);
   isRead = chatMessage.isOutgoing ? true : chatMessage.isRead;
+  if (IsStatusChat(p_ChatId))
+  {
+    // status updates are unread while any is new (not selected in list nor opened)
+    isRead = std::none_of(messages.begin(), messages.end(), [&](const auto& p_Message)
+    {
+      return IsStatusNew(p_ProfileId, p_ChatId, p_Message.second);
+    });
+  }
 
   bool isUnread = !isRead;
   bool hasMention = chatMessage.hasMention;
   std::unordered_map<std::string, ChatInfo>& profileChatInfos = m_ChatInfos[p_ProfileId];
   if (profileChatInfos.count(p_ChatId))
   {
-    if (profileChatInfos[p_ChatId].isArchived)
+    // archived and locked chats never notify
+    if (profileChatInfos[p_ChatId].isArchived || IsChatLocked(p_ProfileId, p_ChatId))
     {
       profileChatInfos[p_ChatId].isUnread = isUnread;
       return;
@@ -2607,48 +3523,122 @@ void UiModel::Impl::UpdateChatInfoIsUnread(const std::string& p_ProfileId, const
           (chatMessage.timeSent > m_ConnectTime[p_ProfileId]);
         if (receivedAfterConnect)
         {
-          static const bool terminalBellActive = UiConfig::GetBool("terminal_bell_active");
-          static const bool terminalBellInactive = UiConfig::GetBool("terminal_bell_inactive");
-          bool terminalBell = m_TerminalActive ? terminalBellActive : terminalBellInactive;
-          if (terminalBell)
+          if (m_OfflineSyncStartTime.count(p_ProfileId) > 0)
           {
-            m_TriggerTerminalBell = true;
-          }
-
-          bool desktopNotify = false;
-          if (m_TerminalActive)
-          {
-            const bool isCurrentChat = IsCurrentChat(p_ProfileId, p_ChatId);
-            if (isCurrentChat)
-            {
-              static const bool desktopNotifyActiveCurrent = UiConfig::GetBool("desktop_notify_active_current");
-              desktopNotify = desktopNotifyActiveCurrent;
-            }
-            else
-            {
-              static const bool desktopNotifyActiveNoncurrent = UiConfig::GetBool("desktop_notify_active_noncurrent");
-              desktopNotify = desktopNotifyActiveNoncurrent;
-            }
+            // hold until offline sync completes, the message may already be read on another device
+            m_OfflineSyncPendingChats[p_ProfileId].insert(p_ChatId);
           }
           else
           {
-            static const bool desktopNotifyInactive = UiConfig::GetBool("desktop_notify_inactive");
-            desktopNotify = desktopNotifyInactive;
-          }
-
-          if (desktopNotify)
-          {
-            const std::string name = ((chatMessage.senderId == p_ChatId)
-              ? GetContactName(p_ProfileId, chatMessage.senderId)
-              : GetContactName(p_ProfileId, p_ChatId) + " - " + GetContactName(p_ProfileId, chatMessage.senderId))
-              + GetProfileSuffix(p_ProfileId);
-            DesktopNotify(name, chatMessage.text);
+            NotifyChatMessage(p_ProfileId, p_ChatId, chatMessage);
           }
         }
       }
     }
 
     profileChatInfos[p_ChatId].isUnread = isUnread;
+  }
+}
+
+void UiModel::Impl::NotifyChatMessage(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                      const ChatMessage& p_ChatMessage)
+{
+  static const bool terminalBellActive = UiConfig::GetBool("terminal_bell_active");
+  static const bool terminalBellInactive = UiConfig::GetBool("terminal_bell_inactive");
+  bool terminalBell = m_TerminalActive ? terminalBellActive : terminalBellInactive;
+  if (terminalBell)
+  {
+    m_TriggerTerminalBell = true;
+  }
+
+  bool desktopNotify = false;
+  if (m_TerminalActive)
+  {
+    const bool isCurrentChat = IsCurrentChat(p_ProfileId, p_ChatId);
+    if (isCurrentChat)
+    {
+      static const bool desktopNotifyActiveCurrent = UiConfig::GetBool("desktop_notify_active_current");
+      desktopNotify = desktopNotifyActiveCurrent;
+    }
+    else
+    {
+      static const bool desktopNotifyActiveNoncurrent = UiConfig::GetBool("desktop_notify_active_noncurrent");
+      desktopNotify = desktopNotifyActiveNoncurrent;
+    }
+  }
+  else
+  {
+    static const bool desktopNotifyInactive = UiConfig::GetBool("desktop_notify_inactive");
+    desktopNotify = desktopNotifyInactive;
+  }
+
+  if (desktopNotify)
+  {
+    const std::string name = ((p_ChatMessage.senderId == p_ChatId)
+      ? GetContactName(p_ProfileId, p_ChatMessage.senderId)
+      : GetContactName(p_ProfileId, p_ChatId) + " - " + GetContactName(p_ProfileId, p_ChatMessage.senderId))
+      + GetProfileSuffix(p_ProfileId);
+    DesktopNotify(name, p_ChatMessage.text);
+  }
+}
+
+void UiModel::Impl::ProcessOfflineSyncFlush()
+{
+  static const int64_t offlineSyncGraceMs = 2 * 1000;
+  static const int64_t offlineSyncMaxMs = 60 * 1000;
+  const int64_t nowTimeMs = TimeUtil::GetCurrentTimeMSec();
+  std::vector<std::string> flushProfileIds;
+  for (const auto& startTime : m_OfflineSyncStartTime)
+  {
+    const std::string& profileId = startTime.first;
+    const bool isCompleted = (m_OfflineSyncEndTime.count(profileId) > 0) &&
+      ((nowTimeMs - m_OfflineSyncEndTime[profileId]) >= offlineSyncGraceMs);
+    const bool isTimedOut = (nowTimeMs - startTime.second) >= offlineSyncMaxMs;
+    if (isCompleted || isTimedOut)
+    {
+      if (!isCompleted)
+      {
+        LOG_WARNING("offline sync not completed within %lld ms", offlineSyncMaxMs);
+      }
+
+      flushProfileIds.push_back(profileId);
+    }
+  }
+
+  static const bool mutedNotifyUnread = UiConfig::GetBool("muted_notify_unread");
+  for (const std::string& profileId : flushProfileIds)
+  {
+    const std::set<std::string> pendingChats = m_OfflineSyncPendingChats[profileId];
+    m_OfflineSyncStartTime.erase(profileId);
+    m_OfflineSyncEndTime.erase(profileId);
+    m_OfflineSyncPendingChats.erase(profileId);
+
+    int notifyCount = 0;
+    for (const std::string& chatId : pendingChats)
+    {
+      std::unordered_map<std::string, ChatInfo>& profileChatInfos = m_ChatInfos[profileId];
+      auto cit = profileChatInfos.find(chatId);
+      if ((cit == profileChatInfos.end()) || cit->second.isArchived || IsChatLocked(profileId, chatId)) continue;
+
+      // read on another device (or replied to) during the sync
+      if (!cit->second.isUnread) continue;
+
+      const std::string lastMessageId = GetLastMessageId(profileId, chatId);
+      if (lastMessageId.empty()) continue;
+
+      const ChatMessage& chatMessage = m_Messages[profileId][chatId].at(lastMessageId);
+
+      if (!mutedNotifyUnread && cit->second.isMuted && !chatMessage.hasMention) continue;
+
+      const bool receivedAfterConnect = (m_ConnectTime.count(profileId) > 0) &&
+        (chatMessage.timeSent > m_ConnectTime[profileId]);
+      if (!receivedAfterConnect) continue;
+
+      NotifyChatMessage(profileId, chatId, chatMessage);
+      ++notifyCount;
+    }
+
+    LOG_DEBUG("offline sync flush pending %d notified %d", (int)pendingChats.size(), notifyCount);
   }
 }
 
@@ -2727,21 +3717,25 @@ int64_t UiModel::Impl::GetLastMessageTime(const std::string& p_ProfileId, const 
 
 bool UiModel::Impl::GetChatIsUnread(const std::string& p_ProfileId, const std::string& p_ChatId)
 {
+  if (IsChatLockedHidden(p_ProfileId, p_ChatId)) return false;
+
   const ChatInfo& chatInfo = m_ChatInfos[p_ProfileId][p_ChatId];
   static const bool mutedIndicateUnread = UiConfig::GetBool("muted_indicate_unread");
   const bool indicateUnread = chatInfo.isUnread && (mutedIndicateUnread || !chatInfo.isMuted);
   return indicateUnread; // @todo: handle isUnreadMention
 }
 
-std::string UiModel::Impl::GetChatStatus(const std::string& p_ProfileId, const std::string& p_ChatId)
+std::string UiModel::Impl::GetChatPresence(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                           int& p_PresenceType)
 {
+  p_PresenceType = PresenceNone;
   std::string chatStatus;
   const std::set<std::string>& usersTyping = m_UsersTyping[p_ProfileId][p_ChatId];
   const ContactInfo& contactInfo = m_ContactInfos[p_ProfileId][p_ChatId];
-  const ChatInfo& chatInfo = m_ChatInfos[p_ProfileId][p_ChatId];
 
   if (!usersTyping.empty())
   {
+    p_PresenceType = PresenceTyping;
     if (usersTyping.size() > 1)
     {
       std::vector<std::string> userIds = ToVector(usersTyping);
@@ -2772,6 +3766,7 @@ std::string UiModel::Impl::GetChatStatus(const std::string& p_ProfileId, const s
   {
     if (m_UserOnline[p_ProfileId][p_ChatId])
     {
+      p_PresenceType = PresenceOnline;
       chatStatus = "online";
     }
     else
@@ -2780,18 +3775,22 @@ std::string UiModel::Impl::GetChatStatus(const std::string& p_ProfileId, const s
       switch (timeSeen)
       {
         case TimeSeenNone:
+          p_PresenceType = PresenceAway;
           chatStatus = "away";
           break;
 
         case TimeSeenLastMonth:
+          p_PresenceType = PresenceSeen;
           chatStatus = "seen last month";
           break;
 
         case TimeSeenLastWeek:
+          p_PresenceType = PresenceSeen;
           chatStatus = "seen last week";
           break;
 
         default:
+          p_PresenceType = PresenceSeen;
           chatStatus = "seen " + TimeUtil::GetTimeString(timeSeen, false /* p_IsExport */);
           break;
       }
@@ -2801,6 +3800,15 @@ std::string UiModel::Impl::GetChatStatus(const std::string& p_ProfileId, const s
   {
     chatStatus = "";
   }
+
+  return chatStatus;
+}
+
+std::string UiModel::Impl::GetChatStatus(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  const ChatInfo& chatInfo = m_ChatInfos[p_ProfileId][p_ChatId];
+  int presenceType = PresenceNone;
+  std::string chatStatus = GetChatPresence(p_ProfileId, p_ChatId, presenceType);
 
   if (chatInfo.isMuted)
   {
@@ -2839,6 +3847,37 @@ std::string UiModel::Impl::GetChatStatus(const std::string& p_ProfileId, const s
 void UiModel::Impl::OnCurrentChatChanged()
 {
   LOG_TRACE("current chat %s %s", m_CurrentChat.first.c_str(), m_CurrentChat.second.c_str());
+  if (!m_StatusFilterSenderId.empty() && (m_CurrentChat != m_StatusFilterChat))
+  {
+    ClearStatusFilter();
+  }
+
+  if ((m_CurrentChat != s_ChatNone) && IsChatHidden(m_CurrentChat.first, m_CurrentChat.second))
+  {
+    // chat opened by other means than next/prev (e.g. goto, unread, contact), expand its section
+    SetSectionCollapsed(GetChatSection(m_CurrentChat.first, m_CurrentChat.second), false);
+  }
+
+  // leaving status updates other than by Alt-u forgets chat to return to
+  if (!IsStatusChat(m_CurrentChat.second))
+  {
+    m_StatusReturnChat = std::pair<std::string, std::string>();
+  }
+
+  // chat banner data: photo, group members, status updates of contact
+  if (IsBannerChat(m_CurrentChat.first, m_CurrentChat.second))
+  {
+    RequestAvatar(m_CurrentChat.first, m_CurrentChat.second);
+    if (GetChatInfoIsGroup(m_CurrentChat.first, m_CurrentChat.second))
+    {
+      RequestGroupMembers(m_CurrentChat.first, m_CurrentChat.second);
+    }
+    else
+    {
+      UpdateStatusCounts(m_CurrentChat.first, m_CurrentChat.second);
+    }
+  }
+
   SetHistoryInteraction(false);
   UpdateList();
   UpdateStatus();
@@ -2873,6 +3912,12 @@ void UiModel::Impl::RequestMessagesNextChat()
 
 void UiModel::Impl::RequestMessages(const std::string& p_ProfileId, const std::string& p_ChatId)
 {
+  if (IsStatusFilterActive(p_ProfileId, p_ChatId))
+  {
+    FillStatusFilter();
+    return;
+  }
+
   std::unordered_set<std::string>& msgFromIdsRequested = m_MsgFromIdsRequested[p_ProfileId][p_ChatId];
   const std::string& oldestMessageId = m_OldestMessageId[p_ProfileId][p_ChatId];
   std::string fromId = (msgFromIdsRequested.empty() || oldestMessageId.empty()) ? "" : oldestMessageId;
@@ -3149,12 +4194,23 @@ std::unordered_map<std::string, ChatMessage>& UiModel::Impl::GetMessages(const s
 
 std::vector<std::string>& UiModel::Impl::GetMessageVec(const std::string& p_ProfileId, const std::string& p_ChatId)
 {
-  return m_MessageVec[p_ProfileId][p_ChatId];
+  return GetShownMessageVec(p_ProfileId, p_ChatId);
 }
 
 int& UiModel::Impl::GetMessageOffset(const std::string& p_ProfileId, const std::string& p_ChatId)
 {
   return m_MessageOffset[p_ProfileId][p_ChatId];
+}
+
+int UiModel::Impl::GetHistoryViewOffset(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  return m_HistoryViewOffset[p_ProfileId][p_ChatId];
+}
+
+void UiModel::Impl::SetHistoryViewOffset(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                         int p_ViewOffset)
+{
+  m_HistoryViewOffset[p_ProfileId][p_ChatId] = p_ViewOffset;
 }
 
 bool UiModel::Impl::GetSelectMessageActive()
@@ -3164,6 +4220,14 @@ bool UiModel::Impl::GetSelectMessageActive()
 
 void UiModel::Impl::SetSelectMessageActive(bool p_SelectMessageActive)
 {
+  if (p_SelectMessageActive && !m_SelectMessageActive)
+  {
+    // keep the currently shown messages in place when selection starts
+    const std::string& profileId = m_CurrentChat.first;
+    const std::string& chatId = m_CurrentChat.second;
+    m_HistoryViewOffset[profileId][chatId] = m_MessageOffset[profileId][chatId];
+  }
+
   m_SelectMessageActive = p_SelectMessageActive;
   SetHelpOffset(0);
   UpdateHelp();
@@ -3262,7 +4326,7 @@ bool UiModel::Impl::SetCurrentChatIndexIfNotSet()
 {
   if ((m_CurrentChatIndex >= 0) || (m_ChatVec.empty())) return false;
 
-  m_CurrentChatIndex = 0;
+  m_CurrentChatIndex = GetFirstChatIndex();
   m_CurrentChat = m_ChatVec.at(m_CurrentChatIndex);
 
   UpdateHistory();
@@ -3483,7 +4547,7 @@ std::string UiModel::Impl::GetSelectedMessageText()
 {
   std::string profileId = m_CurrentChat.first;
   std::string chatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   const int messageOffset = m_MessageOffset[profileId][chatId];
   const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
 
@@ -3619,7 +4683,7 @@ bool UiModel::Impl::PreEditMsg(std::string& p_ProfileId, std::string& p_ChatId, 
   }
 
   p_ChatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[p_ProfileId][p_ChatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(p_ProfileId, p_ChatId);
   const int messageOffset = m_MessageOffset[p_ProfileId][p_ChatId];
   auto it = std::next(messageVec.begin(), messageOffset);
   if (it == messageVec.end())
@@ -4062,6 +5126,7 @@ void UiModel::Impl::HandleProtocolUiControlEnd()
 {
   LOG_TRACE("handle protocol ui control end");
   refresh();
+  UiImage::Invalidate(); // alternate screen re-entry discards terminal image data
 
   wint_t key = 0;
   while (UiKeyInput::GetWch(&key) != ERR)
@@ -4075,7 +5140,7 @@ bool UiModel::Impl::PreReact(std::string& p_ProfileId, std::string& p_ChatId, st
 {
   p_ProfileId = m_CurrentChat.first;
   p_ChatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[p_ProfileId][p_ChatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(p_ProfileId, p_ChatId);
   const int messageOffset = m_MessageOffset[p_ProfileId][p_ChatId];
   auto it = std::next(messageVec.begin(), messageOffset);
   if (it == messageVec.end()) return false;
@@ -4086,6 +5151,11 @@ bool UiModel::Impl::PreReact(std::string& p_ProfileId, std::string& p_ChatId, st
   if (mit == messages.end())
   {
     LOG_WARNING("message %s missing", p_MsgId.c_str());
+    return false;
+  }
+  else if (IsExpiredStatus(p_ChatId, mit->second))
+  {
+    SetPendingNotice("Expired status, cannot react.");
     return false;
   }
   else
@@ -4160,7 +5230,7 @@ void UiModel::Impl::OnKeyJumpQuoted()
   const std::string chatId = m_CurrentChat.second;
   std::string& oldestMessageId = m_OldestMessageId[profileId][chatId];
 
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   int& messageOffset = m_MessageOffset[profileId][chatId];
   auto it = std::next(messageVec.begin(), messageOffset);
   if (it == messageVec.end()) return;
@@ -4202,7 +5272,7 @@ void UiModel::Impl::OnKeyJumpPinned()
   std::string fromMsgId;
   if (GetSelectMessageActive())
   {
-    const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+    const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
     const int messageOffset = m_MessageOffset[profileId][chatId];
     auto it = std::next(messageVec.begin(), messageOffset);
     if (it != messageVec.end())
@@ -4238,7 +5308,7 @@ void UiModel::Impl::PerformFindNext(const std::string& p_FindText)
   std::string fromMsgId;
   if (GetSelectMessageActive())
   {
-    const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+    const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
     const int messageOffset = m_MessageOffset[profileId][chatId];
     auto it = std::next(messageVec.begin(), messageOffset);
     if (it != messageVec.end())
@@ -4263,6 +5333,12 @@ void UiModel::Impl::ForwardMessage(const std::pair<std::string, std::string>& p_
 
 void UiModel::Impl::PerformForwardMessage(const std::pair<std::string, std::string>& p_Chat)
 {
+  if (IsStatusChat(p_Chat.second))
+  {
+    SetPendingNotice("Sending to Status Updates is not supported.");
+    return;
+  }
+
   ChatMessage message;
   std::string profileId;
   std::string chatId;
@@ -4270,7 +5346,7 @@ void UiModel::Impl::PerformForwardMessage(const std::pair<std::string, std::stri
   {
     profileId = m_CurrentChat.first;
     chatId = m_CurrentChat.second;
-    const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+    const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
     const int messageOffset = m_MessageOffset[profileId][chatId];
     const std::unordered_map<std::string, ChatMessage>& messages =
       m_Messages[profileId][chatId];
@@ -4338,6 +5414,360 @@ void UiModel::Impl::PerformForwardMessage(const std::pair<std::string, std::stri
   SetSelectMessageActive(false);
 }
 
+bool UiModel::Impl::IsStatusChat(const std::string& p_ChatId)
+{
+  return (p_ChatId == "status@broadcast");
+}
+
+bool UiModel::Impl::IsExpiredStatus(const std::string& p_ChatId, const ChatMessage& p_ChatMessage)
+{
+  static const int64_t expiryMSec = 24 * 60 * 60 * 1000LL;
+  return IsStatusChat(p_ChatId) && ((TimeUtil::GetCurrentTimeMSec() - p_ChatMessage.timeSent) > expiryMSec);
+}
+
+void UiModel::Impl::SetPendingNotice(const std::string& p_Notice)
+{
+  m_PendingNotice = p_Notice;
+}
+
+std::string UiModel::Impl::TakePendingNotice()
+{
+  std::string notice;
+  std::swap(notice, m_PendingNotice);
+  return notice;
+}
+
+bool UiModel::Impl::IsStatusFilterActive(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  return !m_StatusFilterSenderId.empty() && (m_StatusFilterChat.first == p_ProfileId) &&
+         (m_StatusFilterChat.second == p_ChatId);
+}
+
+std::vector<std::string>& UiModel::Impl::GetShownMessageVec(const std::string& p_ProfileId,
+                                                            const std::string& p_ChatId)
+{
+  if (IsStatusFilterActive(p_ProfileId, p_ChatId)) return m_StatusFilterVec;
+
+  return m_MessageVec[p_ProfileId][p_ChatId];
+}
+
+void UiModel::Impl::RebuildStatusFilter(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  if (!IsStatusFilterActive(p_ProfileId, p_ChatId)) return;
+
+  const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[p_ProfileId][p_ChatId];
+  m_StatusFilterVec.clear();
+  for (const auto& msgId : m_MessageVec[p_ProfileId][p_ChatId])
+  {
+    auto msgIt = messages.find(msgId);
+    if ((msgIt != messages.end()) && (msgIt->second.senderId == m_StatusFilterSenderId))
+    {
+      m_StatusFilterVec.push_back(msgId);
+    }
+  }
+}
+
+void UiModel::Impl::FillStatusFilter()
+{
+  // load older status updates of the filtered sender only, until history is filled or none remain
+  static const int blockSize = 50;
+  const std::string& profileId = m_StatusFilterChat.first;
+  const std::string& chatId = m_StatusFilterChat.second;
+  std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
+  std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const int needed = m_MessageOffset[profileId][chatId] + 1 + GetHistoryLines();
+  bool added = false;
+  while (!m_StatusFilterExhausted && ((int)m_StatusFilterVec.size() < needed))
+  {
+    int64_t beforeTime = std::numeric_limits<int64_t>::max();
+    if (!m_StatusFilterVec.empty())
+    {
+      beforeTime = messages.at(m_StatusFilterVec.back()).timeSent;
+    }
+
+    std::vector<ChatMessage> chatMessages =
+      MessageCache::FetchSenderMessagesSync(profileId, chatId, m_StatusFilterSenderId, beforeTime, blockSize);
+    m_StatusFilterExhausted = ((int)chatMessages.size() < blockSize);
+    for (const auto& chatMessage : chatMessages)
+    {
+      if (messages.insert({ chatMessage.id, chatMessage }).second)
+      {
+        messageVec.push_back(chatMessage.id);
+        m_StatusFilterLoadedIds.insert(chatMessage.id);
+        added = true;
+      }
+    }
+
+    if (chatMessages.empty()) break;
+
+    // *INDENT-OFF*
+    std::sort(messageVec.begin(), messageVec.end(),
+              [&](const std::string& lhs, const std::string& rhs) -> bool
+    {
+      return messages.at(lhs).timeSent > messages.at(rhs).timeSent;
+    });
+    // *INDENT-ON*
+
+    const size_t prevCount = m_StatusFilterVec.size();
+    RebuildStatusFilter(profileId, chatId);
+    if (m_StatusFilterVec.size() == prevCount) break;
+  }
+
+  if (added)
+  {
+    UpdateHistory();
+  }
+}
+
+void UiModel::Impl::SetStatusFilter(const std::string& p_SenderId)
+{
+  ClearStatusFilter();
+
+  const std::string& profileId = m_CurrentChat.first;
+  const std::string& chatId = m_CurrentChat.second;
+  m_StatusFilterChat = m_CurrentChat;
+  m_StatusFilterSenderId = p_SenderId;
+  m_StatusFilterExhausted = false;
+  m_MessageOffset[profileId][chatId] = 0;
+  m_MessageOffsetStack[profileId][chatId] = std::stack<int>();
+  RebuildStatusFilter(profileId, chatId);
+  FillStatusFilter();
+  UpdateList();
+  UpdateHistory();
+}
+
+bool UiModel::Impl::IsStatusPrefetchWanted(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                            const std::string& p_MsgId)
+{
+  static const bool statusPrefetch = UiConfig::GetBool("status_prefetch");
+  static const uint64_t videoMaxBytes =
+    (uint64_t)std::max(0, UiConfig::GetNum("status_prefetch_video_max_mb")) * 1024 * 1024;
+  if (!statusPrefetch || !IsStatusChat(p_ChatId)) return false;
+
+  const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[p_ProfileId][p_ChatId];
+  auto mit = messages.find(p_MsgId);
+  if (mit == messages.end()) return false;
+
+  const ChatMessage& chatMessage = mit->second;
+  if (chatMessage.fileInfo.empty() || IsExpiredStatus(p_ChatId, chatMessage)) return false;
+
+  const FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(chatMessage.fileInfo);
+  if ((fileInfo.fileStatus != FileStatusNotDownloaded) || fileInfo.fileId.empty()) return false;
+
+  if (UiImage::IsImageFile(fileInfo.filePath)) return true;
+
+  if (UiImage::IsVideoFile(fileInfo.filePath))
+  {
+    // videos only when size is known (from media metadata) and within limit
+    const MediaMeta& meta = MediaInfo::Get(p_ProfileId, p_MsgId);
+    return (meta.fileLength > 0) && (meta.fileLength <= videoMaxBytes);
+  }
+
+  return false;
+}
+
+void UiModel::Impl::QueueStatusPrefetch(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                        const std::string& p_MsgId)
+{
+  if (m_StatusPrefetchQueued.count(p_MsgId)) return;
+
+  if (!IsStatusPrefetchWanted(p_ProfileId, p_ChatId, p_MsgId)) return;
+
+  LOG_DEBUG("queue status prefetch %s", p_MsgId.c_str());
+  m_StatusPrefetchQueued.insert(p_MsgId);
+  m_StatusPrefetchQueue.push_back(std::make_tuple(p_ProfileId, p_ChatId, p_MsgId));
+}
+
+void UiModel::Impl::ProcessStatusPrefetch()
+{
+  static const int64_t inFlightTimeoutMs = 120 * 1000;
+  const int64_t nowMs = TimeUtil::GetCurrentTimeMSec();
+  if (!m_StatusPrefetchInFlightId.empty())
+  {
+    if ((nowMs - m_StatusPrefetchInFlightTime) < inFlightTimeoutMs) return;
+
+    LOG_WARNING("status prefetch %s timed out", m_StatusPrefetchInFlightId.c_str());
+    m_StatusPrefetchInFlightId.clear();
+  }
+
+  // keep queue while offline, downloads would fail
+  if (!(Status::Get(Status::FlagOnline) & Status::FlagOnline)) return;
+
+  while (!m_StatusPrefetchQueue.empty())
+  {
+    const std::string profileId = std::get<0>(m_StatusPrefetchQueue.front());
+    const std::string chatId = std::get<1>(m_StatusPrefetchQueue.front());
+    const std::string msgId = std::get<2>(m_StatusPrefetchQueue.front());
+    m_StatusPrefetchQueue.pop_front();
+
+    // re-check, may have expired or been downloaded (ex: opened by user) while queued
+    if (!IsStatusPrefetchWanted(profileId, chatId, msgId)) continue;
+
+    const ChatMessage& chatMessage = m_Messages[profileId][chatId][msgId];
+    const FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(chatMessage.fileInfo);
+    LOG_DEBUG("status prefetch %s (%d queued)", msgId.c_str(), (int)m_StatusPrefetchQueue.size());
+    m_StatusPrefetchInFlightId = msgId;
+    m_StatusPrefetchInFlightTime = nowMs;
+    DownloadAttachment(profileId, chatId, msgId, fileInfo.fileId, DownloadFileActionNone);
+    UpdateHistory();
+    return;
+  }
+}
+
+void UiModel::Impl::StartStatusVideoCleanup()
+{
+  static const int retentionDays = UiConfig::GetNum("status_video_retention_days");
+  if (m_StatusVideoCleanupStarted || (retentionDays <= 0) || m_Protocols.empty()) return;
+
+  m_StatusVideoCleanupStarted = true;
+
+  std::vector<std::string> profileIds;
+  for (const auto& protocol : m_Protocols)
+  {
+    profileIds.push_back(protocol.first);
+  }
+
+  const int64_t beforeTime = TimeUtil::GetCurrentTimeMSec() - ((int64_t)retentionDays * 24 * 3600 * 1000);
+  m_StatusVideoCleanupThread = std::thread([this, profileIds, beforeTime]()
+  {
+    static const std::string statusChatId = "status@broadcast";
+    for (const auto& profileId : profileIds)
+    {
+      int count = 0;
+      uint64_t bytes = 0;
+      const std::vector<std::pair<std::string, std::string>> fileInfos =
+        MessageCache::FetchFileInfosSync(profileId, statusChatId, beforeTime);
+      for (const auto& msgIdFileInfo : fileInfos)
+      {
+        FileInfo fileInfo = ProtocolUtil::FileInfoFromHex(msgIdFileInfo.second);
+        if (!UiImage::IsVideoFile(fileInfo.filePath) || !FileUtil::Exists(fileInfo.filePath)) continue;
+
+        struct stat st;
+        const uint64_t size = (stat(fileInfo.filePath.c_str(), &st) == 0) ? (uint64_t)st.st_size : 0;
+        if (remove(fileInfo.filePath.c_str()) != 0)
+        {
+          LOG_WARNING("remove %s failed", fileInfo.filePath.c_str());
+          continue;
+        }
+
+        ++count;
+        bytes += size;
+        fileInfo.fileStatus = FileStatusNotDownloaded;
+        const std::string fileInfoStr = ProtocolUtil::FileInfoToHex(fileInfo);
+        MessageCache::UpdateMessageFileInfo(profileId, statusChatId, msgIdFileInfo.first, fileInfoStr);
+
+        std::lock_guard<std::mutex> lock(m_StatusVideoCleanupMutex);
+        m_StatusVideoCleanupResults.push_back(std::make_tuple(profileId, msgIdFileInfo.first, fileInfoStr));
+      }
+
+      LOG_INFO("status video cleanup %s removed %d files %llu MB", profileId.c_str(), count,
+               (unsigned long long)(bytes / (1024 * 1024)));
+    }
+  });
+}
+
+void UiModel::Impl::ProcessStatusVideoCleanup()
+{
+  std::vector<std::tuple<std::string, std::string, std::string>> results;
+  {
+    std::lock_guard<std::mutex> lock(m_StatusVideoCleanupMutex);
+    results.swap(m_StatusVideoCleanupResults);
+  }
+
+  if (results.empty()) return;
+
+  static const std::string statusChatId = "status@broadcast";
+  for (const auto& result : results)
+  {
+    std::unordered_map<std::string, ChatMessage>& messages = m_Messages[std::get<0>(result)][statusChatId];
+    auto mit = messages.find(std::get<1>(result));
+    if (mit != messages.end())
+    {
+      mit->second.fileInfo = std::get<2>(result);
+    }
+  }
+
+  UpdateHistory();
+}
+
+void UiModel::Impl::ClearStatusFilter()
+{
+  if (m_StatusFilterSenderId.empty()) return;
+
+  // free status updates loaded only for the filter, which are outside the range loaded in sequence
+  const std::string profileId = m_StatusFilterChat.first;
+  const std::string chatId = m_StatusFilterChat.second;
+  std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
+  std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const int64_t oldestMessageTime = m_OldestMessageTime[profileId][chatId];
+  std::unordered_set<std::string> freeIds;
+  for (const auto& msgId : m_StatusFilterLoadedIds)
+  {
+    auto msgIt = messages.find(msgId);
+    if ((msgIt != messages.end()) && ((oldestMessageTime == 0) || (msgIt->second.timeSent < oldestMessageTime)))
+    {
+      freeIds.insert(msgId);
+      messages.erase(msgIt);
+    }
+  }
+
+  if (!freeIds.empty())
+  {
+    messageVec.erase(std::remove_if(messageVec.begin(), messageVec.end(),
+                                    [&](const std::string& p_MsgId) { return freeIds.count(p_MsgId) > 0; }),
+                     messageVec.end());
+  }
+
+  LOG_DEBUG("status filter cleared, freed %d of %d", (int)freeIds.size(), (int)m_StatusFilterLoadedIds.size());
+
+  m_StatusFilterSenderId.clear();
+  m_StatusFilterVec.clear();
+  m_StatusFilterLoadedIds.clear();
+  m_StatusFilterExhausted = false;
+  m_MessageOffset[profileId][chatId] = 0;
+  m_MessageOffsetStack[profileId][chatId] = std::stack<int>();
+  SetSelectMessageActive(false);
+  UpdateList();
+  UpdateHistory();
+}
+
+void UiModel::Impl::SetStatusFilterFromSelected()
+{
+  // filter by sender of selected status update, keeping it selected
+  const std::string& profileId = m_CurrentChat.first;
+  const std::string& chatId = m_CurrentChat.second;
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
+  const int messageOffset = m_MessageOffset[profileId][chatId];
+  if ((messageOffset < 0) || (messageOffset >= (int)messageVec.size())) return;
+
+  const std::string msgId = messageVec.at(messageOffset);
+  const std::string senderId = m_Messages[profileId][chatId][msgId].senderId;
+  SetStatusFilter(senderId);
+
+  auto it = std::find(m_StatusFilterVec.begin(), m_StatusFilterVec.end(), msgId);
+  const int newOffset = (it != m_StatusFilterVec.end()) ? (int)std::distance(m_StatusFilterVec.begin(), it) : 0;
+  m_MessageOffset[profileId][chatId] = newOffset;
+  SetSelectMessageActive(true);
+  m_HistoryViewOffset[profileId][chatId] = newOffset;
+  UpdateHistory();
+}
+
+std::string UiModel::Impl::GetStatusFilterSenderId()
+{
+  return m_StatusFilterSenderId;
+}
+
+int UiModel::Impl::GetFirstChatIndex()
+{
+  // start at first chat, not at status updates
+  for (int i = 0; i < (int)m_ChatVec.size(); ++i)
+  {
+    if (!IsStatusChat(m_ChatVec.at(i).second)) return i;
+  }
+
+  return 0;
+}
+
 bool UiModel::Impl::IsChatForceHidden(const std::string& p_ChatId)
 {
   static const bool statusBroadcastHidden = (UiConfig::GetNum("status_broadcast") == 0);
@@ -4381,7 +5811,7 @@ void UiModel::Impl::AddQuoteFromSelectedMessage(ChatMessage& p_ChatMessage)
 {
   const std::string profileId = m_CurrentChat.first;
   const std::string chatId = m_CurrentChat.second;
-  const std::vector<std::string>& messageVec = m_MessageVec[profileId][chatId];
+  const std::vector<std::string>& messageVec = GetShownMessageVec(profileId, chatId);
   const int messageOffset = m_MessageOffset[profileId][chatId];
   const std::unordered_map<std::string, ChatMessage>& messages = m_Messages[profileId][chatId];
 
@@ -4583,6 +6013,9 @@ void UiModel::KeyHandler(wint_t p_Key)
   static wint_t keyDeleteChat = UiKeyConfig::GetKey("delete_chat");
   static wint_t keyArchiveChat = UiKeyConfig::GetKey("archive_chat");
   static wint_t keyPin = UiKeyConfig::GetKey("pin");
+  static wint_t keyToggleOthers = UiKeyConfig::GetKey("toggle_others");
+  static wint_t keyStatusFilter = UiKeyConfig::GetKey("status_filter");
+  static wint_t keyToggleArchived = UiKeyConfig::GetKey("toggle_archived");
   static wint_t keyEditMsg = UiKeyConfig::GetKey("edit_msg");
   static wint_t keyCancel = UiKeyConfig::GetKey("cancel");
 
@@ -4601,6 +6034,7 @@ void UiModel::KeyHandler(wint_t p_Key)
   static wint_t keyJumpQuoted = UiKeyConfig::GetKey("jump_quoted");
   static wint_t keyJumpPinned = UiKeyConfig::GetKey("jump_pinned");
   static wint_t keyFind = UiKeyConfig::GetKey("find");
+  static wint_t keyToggleLocked = UiKeyConfig::GetKey("toggle_locked");
   static wint_t keyFindNext = UiKeyConfig::GetKey("find_next");
 
   static wint_t keyForwardMsg = UiKeyConfig::GetKey("forward_msg");
@@ -4642,8 +6076,21 @@ void UiModel::KeyHandler(wint_t p_Key)
   }
   else if (p_Key == keyToggleHelp)
   {
+    OnKeyToggleHelp();
+  }
+  else if (p_Key == keyStatusFilter)
+  {
+    OnKeyStatusFilter();
+  }
+  else if (p_Key == keyToggleOthers)
+  {
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
-    GetImpl().OnKeyToggleHelp();
+    GetImpl().OnKeyToggleOthers();
+  }
+  else if (p_Key == keyToggleArchived)
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    GetImpl().OnKeyToggleArchived();
   }
   else if (p_Key == keyToggleList)
   {
@@ -4832,6 +6279,10 @@ void UiModel::KeyHandler(wint_t p_Key)
   {
     OnKeyFind();
   }
+  else if (p_Key == keyToggleLocked)
+  {
+    OnKeyToggleLocked();
+  }
   else if (p_Key == keyFindNext)
   {
     OnKeyFindNext();
@@ -4856,6 +6307,18 @@ void UiModel::KeyHandler(wint_t p_Key)
   {
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     GetImpl().EntryKeyHandler(p_Key);
+  }
+
+  // Show notice from key action, with modal dialog opened without model mutex held
+  std::string notice;
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    notice = GetImpl().TakePendingNotice();
+  }
+
+  if (!notice.empty())
+  {
+    MessageDialog("Warning", notice, 0.7, 5);
   }
 }
 
@@ -4882,7 +6345,17 @@ bool UiModel::Process()
     GetImpl().HandleProtocolUiControlEnd();
   }
 
-  return GetImpl().Process();
+  const bool rv = GetImpl().Process();
+
+  // Show notice from protocol response (ex: failed pin), with modal dialog opened without model mutex held
+  const std::string notice = GetImpl().TakePendingNotice();
+  lock.unlock();
+  if (!notice.empty())
+  {
+    MessageDialog("Warning", notice, 0.7, 5);
+  }
+
+  return rv;
 }
 
 void UiModel::RequestContacts()
@@ -4911,8 +6384,17 @@ void UiModel::GetAvailableEmojis(std::set<std::string>& p_AvailableEmojis, bool&
 
 std::vector<std::pair<std::string, std::string>> UiModel::GetChatVec()
 {
+  // used by dialogs, hidden locked chats excluded
   std::unique_lock<owned_mutex> lock(m_ModelMutex);
-  return GetImpl().GetChatVec();
+  std::vector<std::pair<std::string, std::string>> chatVec;
+  for (const auto& chat : GetImpl().GetChatVec())
+  {
+    if (GetImpl().IsChatLockedHidden(chat.first, chat.second)) continue;
+
+    chatVec.push_back(chat);
+  }
+
+  return chatVec;
 }
 
 std::string UiModel::GetContactListName(const std::string& p_ProfileId, const std::string& p_ChatId, bool p_AllowId,
@@ -5024,10 +6506,47 @@ bool UiModel::GetChatIsUnreadLocked(const std::string& p_ProfileId, const std::s
   return GetImpl().GetChatIsUnread(p_ProfileId, p_ChatId);
 }
 
+int UiModel::GetChatSectionLocked(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().GetChatSection(p_ProfileId, p_ChatId);
+}
+
+bool UiModel::GetSectionCollapsedLocked(int p_Section)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().GetSectionCollapsed(p_Section);
+}
+
+bool UiModel::GetLockedVisibleLocked()
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().GetLockedVisible();
+}
+
+bool UiModel::IsChatLockedHidden(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  std::unique_lock<owned_mutex> lock(m_ModelMutex);
+  return GetImpl().IsChatLockedHidden(p_ProfileId, p_ChatId);
+}
+
+bool UiModel::IsChatHiddenLocked(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().IsChatHidden(p_ProfileId, p_ChatId);
+}
+
 std::string UiModel::GetChatStatusLocked(const std::string& p_ProfileId, const std::string& p_ChatId)
 {
   nc_assert(m_ModelMutex.owns_lock());
   return GetImpl().GetChatStatus(p_ProfileId, p_ChatId);
+}
+
+bool UiModel::GetChatBannerLocked(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                  ChatBanner& p_ChatBanner)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().GetChatBanner(p_ProfileId, p_ChatId, p_ChatBanner);
 }
 
 std::vector<std::pair<std::string, std::string>>& UiModel::GetChatVecLocked()
@@ -5127,6 +6646,31 @@ int UiModel::GetMessageOffsetLocked(const std::string& p_ProfileId, const std::s
   return GetImpl().GetMessageOffset(p_ProfileId, p_ChatId);
 }
 
+bool UiModel::IsExpiredStatusLocked(const std::string& p_ChatId, const ChatMessage& p_ChatMessage)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().IsExpiredStatus(p_ChatId, p_ChatMessage);
+}
+
+std::string UiModel::GetStatusFilterSenderIdLocked()
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().GetStatusFilterSenderId();
+}
+
+int UiModel::GetHistoryViewOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().GetHistoryViewOffset(p_ProfileId, p_ChatId);
+}
+
+void UiModel::SetHistoryViewOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                         int p_ViewOffset)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  GetImpl().SetHistoryViewOffset(p_ProfileId, p_ChatId, p_ViewOffset);
+}
+
 std::unordered_map<std::string, ChatMessage>& UiModel::GetMessagesLocked(const std::string& p_ProfileId,
                                                                          const std::string& p_ChatId)
 {
@@ -5184,6 +6728,20 @@ void UiModel::MarkReadLocked(const std::string& p_ProfileId, const std::string& 
 {
   nc_assert(m_ModelMutex.owns_lock());
   GetImpl().MarkRead(p_ProfileId, p_ChatId, p_MsgId, p_WasUnread);
+}
+
+bool UiModel::IsStatusNewLocked(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                const ChatMessage& p_ChatMessage)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  return GetImpl().IsStatusNew(p_ProfileId, p_ChatId, p_ChatMessage);
+}
+
+void UiModel::MarkStatusSeenLocked(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                   const std::string& p_MsgId)
+{
+  nc_assert(m_ModelMutex.owns_lock());
+  GetImpl().MarkStatusSeen(p_ProfileId, p_ChatId, p_MsgId);
 }
 
 void UiModel::OnStatusUpdateLocked(uint32_t p_Status)
@@ -5287,6 +6845,12 @@ void UiModel::OnKeyTransfer()
   {
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     if (GetImpl().GetEditMessageActive()) return;
+
+    if (GetImpl().IsStatusChat(GetImpl().GetCurrentChat().second))
+    {
+      GetImpl().SetPendingNotice("Sending to Status Updates is not supported.");
+      return;
+    }
   }
 
   // Open modal dialog without model mutex held
@@ -5329,6 +6893,13 @@ void UiModel::OnKeySelectContact()
   if (dialog.Run())
   {
     UiContactListItem selectedContact = dialog.GetSelectedContactItem();
+    if (!selectedContact.phone.empty())
+    {
+      std::unique_lock<owned_mutex> lock(m_ModelMutex);
+      GetImpl().OpenChatByPhone(GetImpl().GetDefaultProfileId(), selectedContact.phone, selectedContact.text);
+      return;
+    }
+
     std::string profileId = selectedContact.profileId;
     std::string userId = selectedContact.contactId;
     std::pair<std::string, std::string> newChat = std::make_pair(profileId, userId);
@@ -5340,6 +6911,70 @@ void UiModel::OnKeySelectContact()
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     GetImpl().ReinitView();
   }
+}
+
+void UiModel::OnKeyStatusFilter()
+{
+  std::string profileId;
+  std::string chatId;
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    if (GetImpl().GetEditMessageActive()) return;
+
+    profileId = GetImpl().GetCurrentChat().first;
+    chatId = GetImpl().GetCurrentChat().second;
+    if (!GetImpl().IsStatusChat(chatId))
+    {
+      // in contact chat, show status updates of contact (Alt-u again returns)
+      if (GetImpl().GetChatInfoIsGroup(profileId, chatId)) return;
+
+      if (!GetImpl().HasStatusUpdates(profileId, chatId))
+      {
+        GetImpl().SetPendingNotice("No status updates from " + GetImpl().GetContactName(profileId, chatId) + ".");
+        return;
+      }
+
+      static const std::string statusChatId = "status@broadcast";
+      const std::pair<std::string, std::string> contactChat(profileId, chatId);
+      GetImpl().GotoChat(std::make_pair(profileId, statusChatId));
+      if (!GetImpl().IsStatusChat(GetImpl().GetCurrentChat().second)) return;
+
+      GetImpl().SetStatusReturnChat(contactChat);
+      GetImpl().SetStatusFilter(chatId);
+      return;
+    }
+
+    // same command clears an active filter, returning to contact chat if opened from there
+    if (!GetImpl().GetStatusFilterSenderId().empty())
+    {
+      const std::pair<std::string, std::string> returnChat = GetImpl().TakeStatusReturnChat();
+      GetImpl().ClearStatusFilter();
+      if (!returnChat.second.empty())
+      {
+        GetImpl().GotoChat(returnChat);
+      }
+
+      return;
+    }
+
+    if (GetImpl().GetSelectMessageActive())
+    {
+      GetImpl().SetStatusFilterFromSelected();
+      return;
+    }
+  }
+
+  // Open modal dialog without model mutex held
+  UiDialogParams params(this, "Status from", 0.75, 0.65);
+  UiStatusContactDialog dialog(params, profileId, chatId);
+  const bool selected = dialog.Run();
+  std::unique_lock<owned_mutex> lock(m_ModelMutex);
+  if (selected)
+  {
+    GetImpl().SetStatusFilter(dialog.GetSelectedItem().senderId);
+  }
+
+  GetImpl().ReinitView();
 }
 
 void UiModel::OnKeySelectMention()
@@ -5427,6 +7062,54 @@ void UiModel::OnKeyReact()
     std::string emoji = StrUtil::ToString(dialog.GetSelectedEmoji(true /*p_EmojiEnabled*/));
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     GetImpl().SetReact(profileId, chatId, senderId, msgId, selfEmoji, emoji);
+  }
+  else
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    GetImpl().ReinitView();
+  }
+}
+
+void UiModel::OnKeyToggleLocked()
+{
+  // Pre-req
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    if (GetImpl().GetEditMessageActive()) return;
+
+    if (GetImpl().GetLockedVisible())
+    {
+      GetImpl().HideLockedChats();
+      return;
+    }
+
+    // secret code hash is synced from whatsapp to profile dir, no point asking without it
+    const std::string profileDir = FileUtil::GetApplicationDir() + "/profiles/" + GetImpl().GetDefaultProfileId();
+    if (!FileUtil::Exists(profileDir + "/chat_lock"))
+    {
+      GetImpl().SetPendingNotice(FileUtil::Exists(profileDir + "/locked_synced")
+                                 ? "Set a secret code for locked chats in WhatsApp on your phone."
+                                 : "Locked chats are not synced yet, please try again later.");
+      GetImpl().ReinitView();
+      return;
+    }
+  }
+
+  // Open modal dialog without model mutex held
+  UiDialogParams params(this, "Locked Chats", 0.5, 5);
+  UiTextInputDialog textInputDialog(params, "Secret code: ", "", true /*p_Masked*/);
+  if (textInputDialog.Run())
+  {
+    std::string code = textInputDialog.GetInput();
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    if (code.empty())
+    {
+      GetImpl().ReinitView();
+      return;
+    }
+
+    GetImpl().CheckSecretCode(code);
+    std::fill(code.begin(), code.end(), '\0');
   }
   else
   {
@@ -5564,12 +7247,29 @@ void UiModel::OnKeyDeleteChat()
   GetImpl().OnKeyDeleteChat();
 }
 
+void UiModel::OnKeyToggleHelp()
+{
+  {
+    std::unique_lock<owned_mutex> lock(m_ModelMutex);
+    GetImpl().AnyUserKeyInput();
+  }
+
+  // Open modal dialog without model mutex held
+  UiDialogParams params(this, "Help", 0.85, 0.85);
+  UiHelpDialog helpDialog(params);
+  helpDialog.Run();
+  ReinitView();
+}
+
 void UiModel::OnKeyArchiveChat()
 {
   bool hasFeature = false;
   {
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     if (GetImpl().GetSelectMessageActive() || GetImpl().GetEditMessageActive()) return;
+
+    // status updates cannot be archived, skip confirmation
+    if (GetImpl().IsStatusChat(GetImpl().GetCurrentChat().second)) return;
 
     const std::string& profileId = GetImpl().GetCurrentChat().first;
     hasFeature = GetImpl().HasProtocolFeature(profileId, FeatureArchiveChat);
@@ -5669,6 +7369,12 @@ void UiModel::OnKeyEditMsg()
   {
     std::unique_lock<owned_mutex> lock(m_ModelMutex);
     if (!GetImpl().GetSelectMessageActive() || GetImpl().GetEditMessageActive()) return;
+
+    if (GetImpl().IsStatusChat(GetImpl().GetCurrentChat().second))
+    {
+      GetImpl().SetPendingNotice("Sending to Status Updates is not supported.");
+      return;
+    }
 
     isAllowed = GetImpl().PreEditMsg(profileId, chatId, msgId, msgDialogText);
   }

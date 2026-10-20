@@ -13,6 +13,18 @@
 
 #include <sys/types.h>
 
+enum FileCategory
+{
+  FileCategoryOther = 0,
+  FileCategoryImage,
+  FileCategoryVideo,
+  FileCategoryAudio,
+  FileCategoryPdf,
+  FileCategoryDocument,
+  FileCategorySpreadsheet,
+  FileCategoryArchive,
+};
+
 struct DirEntry
 {
   DirEntry()
@@ -75,6 +87,7 @@ public:
   static std::string GetDefaultApplicationDir();
   static int GetDirVersion(const std::string& p_Dir);
   static std::string GetDownloadsDir();
+  static FileCategory GetFileCategory(const std::string& p_Path);
   static std::string GetFileExt(const std::string& p_Path);
   static std::string GetMimeType(const std::string& p_Path);
   static std::string GetSelfPath();

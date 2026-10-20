@@ -9,6 +9,7 @@
 
 #include "strutil.h"
 #include "uicolorconfig.h"
+#include "uiimage.h"
 #include "uimodel.h"
 #include "uiview.h"
 
@@ -18,6 +19,7 @@ UiDialog::UiDialog(const UiDialogParams& p_Params)
   , m_WReq(p_Params.wReq)
   , m_HReq(p_Params.hReq)
 {
+  UiImage::Suspend();
   Init();
   curs_set(0);
 }
@@ -26,6 +28,7 @@ UiDialog::~UiDialog()
 {
   Cleanup();
   curs_set(1);
+  UiImage::Resume();
 }
 
 void UiDialog::Init()

@@ -7,18 +7,58 @@
 
 #pragma once
 
+#include <deque>
 #include <mutex>
 #include <set>
 #include <stack>
 #include <string>
+#include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "apputil.h"
 #include "owned_mutex.h"
 #include "protocol.h"
 
 class UiView;
+
+// chat list sections, in display order
+enum ChatSection
+{
+  ChatSectionStatus = 0, // status updates, listed first without a section title
+  ChatSectionPinned = 1,
+  ChatSectionOthers = 2,
+  ChatSectionArchived = 3,
+  ChatSectionLocked = 4, // whatsapp locked chats, hidden unless shown with secret code
+  ChatSectionCount = 5,
+};
+
+// presence of contact, for chat banner colors
+enum PresenceType
+{
+  PresenceNone = 0,
+  PresenceTyping,
+  PresenceOnline,
+  PresenceAway,
+  PresenceSeen,
+};
+
+// chat banner shown on top of history (contact or group chat)
+struct ChatBanner
+{
+  bool isGroup = false;
+  std::string name;
+  std::string phone;
+  std::string presence;
+  int presenceType = PresenceNone;
+  bool isMuted = false;
+  int memberCount = 0;
+  int statusTotal = 0; // status updates of last 24 hours (contact)
+  int statusNew = 0;
+  std::string avatarPath; // empty if no photo
+};
 
 class UiModel
 {
@@ -36,7 +76,41 @@ private:
     void TerminalResize();
     void OnKeyDecreaseListWidth();
     void OnKeyIncreaseListWidth();
-    void OnKeyToggleHelp();
+    void OnKeyToggleOthers();
+    void OnKeyToggleArchived();
+    void ToggleSectionCollapsed(int p_Section);
+    int GetChatSection(const std::string& p_ProfileId, const std::string& p_ChatId);
+    bool IsStatusChat(const std::string& p_ChatId);
+    int GetFirstChatIndex();
+    bool IsExpiredStatus(const std::string& p_ChatId, const ChatMessage& p_ChatMessage);
+    void SetPendingNotice(const std::string& p_Notice);
+    std::string TakePendingNotice();
+    bool IsStatusFilterActive(const std::string& p_ProfileId, const std::string& p_ChatId);
+    std::vector<std::string>& GetShownMessageVec(const std::string& p_ProfileId, const std::string& p_ChatId);
+    void RebuildStatusFilter(const std::string& p_ProfileId, const std::string& p_ChatId);
+    void FillStatusFilter();
+    void SetStatusFilter(const std::string& p_SenderId);
+    void ClearStatusFilter();
+    void QueueStatusPrefetch(const std::string& p_ProfileId, const std::string& p_ChatId,
+                             const std::string& p_MsgId);
+    bool IsStatusPrefetchWanted(const std::string& p_ProfileId, const std::string& p_ChatId,
+                                const std::string& p_MsgId);
+    void ProcessStatusPrefetch();
+    void StartStatusVideoCleanup();
+    void ProcessStatusVideoCleanup();
+    void SetStatusFilterFromSelected();
+    std::string GetStatusFilterSenderId();
+    bool GetSectionCollapsed(int p_Section);
+    void SetSectionCollapsed(int p_Section, bool p_Collapsed);
+    bool IsChatHidden(const std::string& p_ProfileId, const std::string& p_ChatId);
+    bool SelectNearestVisibleChat();
+    std::unordered_set<std::string>& GetLockedChats(const std::string& p_ProfileId);
+    void WriteLockedChats(const std::string& p_ProfileId);
+    bool IsChatLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+    bool IsChatLockedHidden(const std::string& p_ProfileId, const std::string& p_ChatId);
+    bool GetLockedVisible();
+    void HideLockedChats();
+    void CheckSecretCode(const std::string& p_Code);
     void OnKeyToggleList();
     void OnKeyToggleTop();
     void OnKeyToggleEmoji();
@@ -56,7 +130,12 @@ private:
     void OnKeyEnd();
     void HomeFetchNext(const std::string& p_ProfileId, const std::string& p_ChatId, int p_MsgCount);
     void MarkRead(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_MsgId,
-                  bool p_WasUnread);
+                  bool p_WasUnread,
+                  bool p_Opened = false);
+    void MarkStatusOpened();
+    void SendStatusReply();
+    bool IsStatusNew(const std::string& p_ProfileId, const std::string& p_ChatId, const ChatMessage& p_ChatMessage);
+    void MarkStatusSeen(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_MsgId);
     void OnStatusUpdate(uint32_t p_Status);
     void DownloadAttachment(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_MsgId,
                             const std::string& p_FileId, DownloadFileAction p_DownloadFileAction);
@@ -83,6 +162,9 @@ private:
     std::map<std::string, std::string> ParseMentions(const std::string& p_ProfileId, const std::string& p_ChatId,
                                                      const std::string& p_Text);
     void OpenCreateChat(const std::pair<std::string, std::string>& p_Chat);
+    void OpenChatByPhone(const std::string& p_ProfileId, const std::string& p_Phone, const std::string& p_Text);
+    std::string GetDefaultProfileId();
+    void ApplyLinkText(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_Text);
     void FetchCachedMessage(const std::string& p_ProfileId, const std::string& p_ChatId,
                             const std::string& p_MsgId);
 
@@ -91,10 +173,13 @@ private:
     std::unordered_map<std::string, std::shared_ptr<Protocol>> GetProtocols();
     bool Process();
     void ProcessTimers();
+    void ProcessOfflineSyncFlush();
 
     std::string GetLastMessageId(const std::string& p_ProfileId, const std::string& p_ChatId);
     void UpdateChatInfoLastMessageTime(const std::string& p_ProfileId, const std::string& p_ChatId);
     void UpdateChatInfoIsUnread(const std::string& p_ProfileId, const std::string& p_ChatId);
+    void NotifyChatMessage(const std::string& p_ProfileId, const std::string& p_ChatId,
+                           const ChatMessage& p_ChatMessage);
     std::string GetContactName(const std::string& p_ProfileId, const std::string& p_ChatId);
     std::string GetContactNameIncludingSelf(const std::string& p_ProfileId, const std::string& p_ChatId);
     std::string GetContactListName(const std::string& p_ProfileId, const std::string& p_ChatId, bool p_AllowId,
@@ -104,6 +189,16 @@ private:
     int64_t GetLastMessageTime(const std::string& p_ProfileId, const std::string& p_ChatId);
     bool GetChatIsUnread(const std::string& p_ProfileId, const std::string& p_ChatId);
     std::string GetChatStatus(const std::string& p_ProfileId, const std::string& p_ChatId);
+    std::string GetChatPresence(const std::string& p_ProfileId, const std::string& p_ChatId, int& p_PresenceType);
+    bool IsBannerChat(const std::string& p_ProfileId, const std::string& p_ChatId);
+    bool GetChatBanner(const std::string& p_ProfileId, const std::string& p_ChatId, ChatBanner& p_ChatBanner);
+    std::string GetAvatarBasePath(const std::string& p_ProfileId, const std::string& p_ChatId);
+    void RequestAvatar(const std::string& p_ProfileId, const std::string& p_ChatId);
+    void OpenAvatar();
+    void UpdateStatusCounts(const std::string& p_ProfileId, const std::string& p_ContactId);
+    bool HasStatusUpdates(const std::string& p_ProfileId, const std::string& p_ContactId);
+    void SetStatusReturnChat(const std::pair<std::string, std::string>& p_Chat);
+    std::pair<std::string, std::string> TakeStatusReturnChat();
 
     std::wstring& GetEntryStr();
     int& GetEntryPos();
@@ -121,6 +216,8 @@ private:
                                                               const std::string& p_ChatId);
     std::vector<std::string>& GetMessageVec(const std::string& p_ProfileId, const std::string& p_ChatId);
     int& GetMessageOffset(const std::string& p_ProfileId, const std::string& p_ChatId);
+    int GetHistoryViewOffset(const std::string& p_ProfileId, const std::string& p_ChatId);
+    void SetHistoryViewOffset(const std::string& p_ProfileId, const std::string& p_ChatId, int p_ViewOffset);
 
     void SetStatusOnline(const std::string& p_ProfileId, bool p_IsOnline);
     void RequestContacts();
@@ -248,10 +345,17 @@ private:
     std::unordered_map<std::string, std::unordered_map<std::string, ContactInfo>> m_ContactInfos;
     int64_t m_ContactInfosUpdateTime = 0;
     std::unordered_map<std::string, int64_t> m_ConnectTime;
+    // offline sync notification hold per profile: start time while held, end time once completed,
+    // and chats whose notification is held until the hold ends
+    std::unordered_map<std::string, int64_t> m_OfflineSyncStartTime;
+    std::unordered_map<std::string, int64_t> m_OfflineSyncEndTime;
+    std::unordered_map<std::string, std::set<std::string>> m_OfflineSyncPendingChats;
     int64_t m_LastSyncMessageTime = 0;
 
     std::pair<std::string, std::string> m_CurrentChat;
     int m_CurrentChatIndex = -1;
+    bool m_SectionCollapsed[ChatSectionCount] = { false };
+    int m_SectionChatCount[ChatSectionCount] = { 0 };
     static const std::pair<std::string, std::string> s_ChatNone;
 
     std::string m_EditMessageId;
@@ -262,6 +366,52 @@ private:
                        std::unordered_map<std::string, std::unordered_map<std::string, ChatMessage>>> m_Messages;
     std::unordered_map<std::string, std::unordered_map<std::string, int>> m_MessageOffset;
     std::unordered_map<std::string, std::unordered_map<std::string, std::stack<int>>> m_MessageOffsetStack;
+    std::unordered_map<std::string, std::unordered_map<std::string, int>> m_HistoryViewOffset;
+
+    // status updates filtered by sender, empty sender id when inactive
+    std::pair<std::string, std::string> m_StatusFilterChat;
+    std::string m_StatusFilterSenderId;
+    std::vector<std::string> m_StatusFilterVec;
+    std::unordered_set<std::string> m_StatusFilterLoadedIds;
+    bool m_StatusFilterExhausted = false;
+
+    // status updates seen in list (selected, not opened), local only, persisted in <profile>/status_seen
+    struct StatusSeen
+    {
+      bool loaded = false;
+      int64_t baseline = 0; // status updates sent before this time are never new
+      std::unordered_map<std::string, int64_t> msgTimes;
+    };
+    StatusSeen& GetStatusSeen(const std::string& p_ProfileId);
+    void WriteStatusSeen(const std::string& p_ProfileId);
+    std::unordered_map<std::string, StatusSeen> m_StatusSeen;
+
+    // chat banner: avatars requested this session, pending avatar open, status counts per contact
+    std::unordered_map<std::string, std::unordered_set<std::string>> m_AvatarRequested;
+    std::pair<std::string, std::string> m_AvatarOpenChat;
+    // locked chats by profile (loaded from profile dir on first use), and whether shown this session
+    std::unordered_map<std::string, std::unordered_set<std::string>> m_LockedChats;
+    std::unordered_set<std::string> m_LockedChatsLoaded;
+    bool m_LockedVisible = false;
+    // message text from opened link, by profile and phone number, applied when chat is created
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> m_PendingLinkText;
+    std::unordered_map<std::string, std::unordered_map<std::string, std::pair<int, int>>> m_StatusCounts;
+    std::pair<std::string, std::string> m_StatusReturnChat; // chat to return to from status filter (Alt-u)
+
+    // status prefetch queue (one download at a time), entries are profile id, chat id, msg id
+    std::deque<std::tuple<std::string, std::string, std::string>> m_StatusPrefetchQueue;
+    std::unordered_set<std::string> m_StatusPrefetchQueued;
+    std::string m_StatusPrefetchInFlightId;
+    int64_t m_StatusPrefetchInFlightTime = 0;
+
+    // status video cleanup (background), results applied to loaded messages under model mutex
+    bool m_StatusVideoCleanupStarted = false;
+    std::thread m_StatusVideoCleanupThread;
+    std::mutex m_StatusVideoCleanupMutex;
+    std::vector<std::tuple<std::string, std::string, std::string>> m_StatusVideoCleanupResults;
+
+    // notice from key action, shown after the action without model mutex held
+    std::string m_PendingNotice;
     std::unordered_map<std::string,
                        std::unordered_map<std::string, std::unordered_set<std::string>>> m_MsgFromIdsRequested;
     std::unordered_map<std::string, std::unordered_map<std::string, bool>> m_FetchedAllCache;
@@ -344,7 +494,13 @@ public:
 
   // Locked methods require caller to hold model mutex (intended for Ui*View classes)
   bool GetChatIsUnreadLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+  int GetChatSectionLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+  bool GetSectionCollapsedLocked(int p_Section);
+  bool IsChatHiddenLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+  bool GetLockedVisibleLocked();
+  bool IsChatLockedHidden(const std::string& p_ProfileId, const std::string& p_ChatId);
   std::string GetChatStatusLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+  bool GetChatBannerLocked(const std::string& p_ProfileId, const std::string& p_ChatId, ChatBanner& p_ChatBanner);
   std::vector<std::pair<std::string, std::string>>& GetChatVecLocked();
   std::string GetContactListNameLocked(const std::string& p_ProfileId, const std::string& p_ChatId, bool p_AllowId,
                                        bool p_AllowAlias);
@@ -362,6 +518,10 @@ public:
   bool GetFileListDialogActiveLocked();
   bool GetMessageDialogActiveLocked();
   int GetMessageOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+  bool IsExpiredStatusLocked(const std::string& p_ChatId, const ChatMessage& p_ChatMessage);
+  std::string GetStatusFilterSenderIdLocked();
+  int GetHistoryViewOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
+  void SetHistoryViewOffsetLocked(const std::string& p_ProfileId, const std::string& p_ChatId, int p_ViewOffset);
   std::unordered_map<std::string, ChatMessage>& GetMessagesLocked(const std::string& p_ProfileId,
                                                                   const std::string& p_ChatId);
   std::vector<std::string>& GetMessageVecLocked(const std::string& p_ProfileId, const std::string& p_ChatId);
@@ -376,6 +536,9 @@ public:
   bool IsMultipleProfilesLocked();
   void MarkReadLocked(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_MsgId,
                       bool p_WasUnread);
+  bool IsStatusNewLocked(const std::string& p_ProfileId, const std::string& p_ChatId,
+                         const ChatMessage& p_ChatMessage);
+  void MarkStatusSeenLocked(const std::string& p_ProfileId, const std::string& p_ChatId, const std::string& p_MsgId);
   void OnStatusUpdateLocked(uint32_t p_Status);
 
   // Static methods
@@ -401,11 +564,13 @@ private:
   void OnKeySelectContact();
   void OnKeyReact();
   void OnKeyFind();
+  void OnKeyToggleLocked();
   void OnKeyFindNext();
   void OnKeyForwardMsg();
   bool MessageDialog(const std::string& p_Title, const std::string& p_Text, float p_WReq, float p_HReq);
   void OnKeyDeleteMsg();
   void OnKeyDeleteChat();
+  void OnKeyToggleHelp();
   void OnKeyArchiveChat();
   void OnKeyPin();
   void OnKeySaveAttachment();
@@ -414,6 +579,7 @@ private:
   void OnKeyExtCall();
   void OnKeyAutoCompose();
   void OnKeySelectMention();
+  void OnKeyStatusFilter();
   void OnKeyCut();
   void OnKeyCopy();
   void OnKeyPaste();

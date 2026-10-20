@@ -40,4 +40,5 @@ protected:
   std::vector<std::wstring> m_Items;
   int m_Index = 0;
   int m_MaxW = 0;
+  bool m_EscCancels = false; // esc closes dialog, requires short escdelay set by subclass
 };

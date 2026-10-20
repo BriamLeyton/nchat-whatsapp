@@ -21,9 +21,11 @@ public:
   static int GetUserColorPair(const std::string& p_Param, const std::string& p_UserId);
   static bool IsUserColor(const std::string& p_Param); // ex: "top_color"
   static int GetAttribute(const std::string& p_Param); // ex: "top_attr"
+  static int GetRgbColorPair(uint32_t p_FgRgb, uint32_t p_BgRgb); // ex: 0xffffff, 0x8a2be2, 0 if unavailable
 
 private:
   static int GetColorId(const std::string& p_Str);
+  static int GetNearestXterm256Color(uint32_t p_R, uint32_t p_G, uint32_t p_B);
   static void HexToRGB(const std::string p_Str, uint32_t& p_R, uint32_t& p_G, uint32_t& p_B);
   static size_t CalcChecksum(const std::string& p_Str);
 

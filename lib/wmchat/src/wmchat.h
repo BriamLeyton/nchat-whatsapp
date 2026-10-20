@@ -112,11 +112,11 @@ void WmNewChatsNotify(int p_ConnId, char* p_ChatId, int p_IsUnread, int p_IsMute
 void WmNewGroupMembersNotify(int p_ConnId, char* p_ChatId, char* p_MembersJson);
 void WmNewMessagesNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, char* p_SenderId, char* p_Text, int p_FromMe,
                          char* p_ReplyId, char* p_FileId, char* p_FilePath, int p_FileStatus, int p_TimeSent,
-                         int p_IsRead, int p_IsEdited);
+                         int p_IsRead, int p_IsEdited, int p_DeliveryStatus);
 void WmNewMessageIsPinnedNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, int p_IsPinned);
 void WmNewStatusNotify(int p_ConnId, char* p_UserId, int p_IsOnline, int p_TimeSeen);
 void WmNewTypingNotify(int p_ConnId, char* p_ChatId, char* p_UserId, int p_IsTyping);
-void WmNewMessageStatusNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, int p_IsRead);
+void WmNewMessageStatusNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, int p_IsRead, int p_DeliveryStatus);
 void WmNewMessageFileNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, char* p_FileId, char* p_FilePath,
                             int p_FileStatus, int p_Action);
 void WmNewMessageReactionNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, char* p_SenderId, char* p_Text,
@@ -125,6 +125,11 @@ void WmDeleteChatNotify(int p_ConnId, char* p_ChatId);
 void WmDeleteMessageNotify(int p_ConnId, char* p_ChatId, char* p_MsgId, int p_IsOutgoing);
 void WmUpdateMuteNotify(int p_ConnId, char* p_ChatId, int p_IsMuted);
 void WmUpdateArchivedNotify(int p_ConnId, char* p_ChatId, int p_IsArchived);
+void WmNewAvatarNotify(int p_ConnId, char* p_ChatId, int p_IsFull, int p_Result);
+void WmCreateChatNotify(int p_ConnId, char* p_ChatId, char* p_Phone, int p_Result);
+void WmUpdateLockedNotify(int p_ConnId, char* p_ChatId, int p_IsLocked);
+void WmCheckSecretCodeNotify(int p_ConnId, int p_Result);
+void WmOfflineSyncNotify(int p_ConnId, int p_IsStarted);
 void WmUpdatePinNotify(int p_ConnId, char* p_ChatId, int p_IsPinned, int p_TimePinned);
 void WmReinit(int p_ConnId);
 void WmSetProtocolUiControl(int p_ConnId, int p_IsTakeControl);
